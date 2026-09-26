@@ -7,9 +7,10 @@
 ## 1. Ringkasan & Tujuan Proyek
 Proyek ini adalah sistem **Dashboard Monitoring MikroTik & Manajemen Voucher Hotspot Mandiri** (Offline-First) berbasis Web untuk jaringan Hotspot RT/RW Net / Kafe / Rumah.
 - **Tujuan Utama**:
-  1. Memonitor router MikroTik secara real-time (Traffic WAN, User Hotspot Aktif, DHCP Leases, PPP, Log Sistem, serta Inspeksi Situs/Website yang dibuka pengguna).
+  1. Memonitor router MikroTik secara real-time (Traffic WAN, User Hotspot Aktif, Total Omset Hari Ini [menggantikan KPI DHCP Leases], PPPoE/User Login, Log Sistem, serta Inspeksi Situs/Website yang dibuka pengguna).
   2. Menyediakan **Halaman Khusus Manajemen Voucher** (`/voucher.html`) yang terpisah dan estetis agar tidak merusak tampilan dashboard utama.
   3. Mengimpor file template cetak voucher `.html` dari Mikhmon, menyimpan ke database **SQLite lokal**, mendeteksi aktivasi login pengguna di MikroTik secara real-time, dan mengalkulasi buku kas / omset pendapatan harian secara otomatis.
+  4. Card ke-2 pada Dashboard Utama (`public/index.html`) menampilkan **Total Omset Hari Ini** yang tersinkronisasi langsung secara real-time dengan menu voucher. Jika diklik, langsung membuka `/voucher.html`. (Tabel detail DHCP Leases tetap tersedia di tab bawah).
 
 ---
 
