@@ -1,0 +1,84 @@
+/* Custom Styles & Scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(17, 24, 39, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(75, 85, 99, 0.6);
+    border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(107, 114, 128, 0.8);
+}
+
+.scrollbar-none::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Tab button active state */
+.tab-btn.active {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.tab-btn:not(.active) {
+    border-color: transparent;
+}
+
+/* Glassmorphism effects */
+.glass-panel {
+    background: rgba(17, 24, 39, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Pulse animation for live data */
+@keyframes softPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.animate-soft-pulse {
+    animation: softPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Log row hover */
+.log-row:hover {
+    background-color: rgba(31, 41, 55, 0.6);
+}
+
+/* Smooth table rows and subtle highlight transitions */
+tbody tr {
+    transition: background-color 0.2s ease, opacity 0.3s ease;
+}
+
+@keyframes rowEnter {
+    from {
+        opacity: 0;
+        transform: translateY(3px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.row-enter-animate {
+    animation: rowEnter 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Smooth pulse for real-time badges */
+.badge-smooth {
+    transition: all 0.3s ease;
+}

@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Environment Variables (Berisi sandi & IP router, jangan dipush ke repo publik)
+.env
+
+# Database SQLite (SANGAT PENTING: Jangan dipush agar database di Proxmox tidak tertimpa saat update git pull)
+data/*.sqlite*
+data/*.json
+!data/.gitkeep
+
+# System & OS logs
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
