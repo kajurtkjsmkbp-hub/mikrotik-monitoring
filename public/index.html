@@ -139,22 +139,25 @@
                 </div>
             </div>
 
-            <!-- 2. DHCP Leases -->
-            <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-gray-800 hover:border-emerald-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden transition group">
-                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-emerald-500/10 rounded-full blur-xl group-hover:bg-emerald-500/20 transition"></div>
+            <!-- 2. Total Omset Hari Ini (dari Menu Voucher) -->
+            <a href="/voucher.html" target="_blank" title="Klik untuk membuka Halaman Manajemen Voucher & Riwayat Omset" class="block bg-gradient-to-br from-gray-900 to-gray-850 border border-amber-500/35 hover:border-amber-500/60 rounded-2xl p-5 shadow-lg relative overflow-hidden transition group cursor-pointer">
+                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition"></div>
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-emerald-400">DHCP Leases</p>
-                        <h3 id="stat-dhcp-count" class="text-3xl font-extrabold text-white mt-1.5">0</h3>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                            <p class="text-xs font-bold uppercase tracking-wider text-amber-400">Total Omset Hari Ini</p>
+                        </div>
+                        <h3 id="stat-omset-today" class="text-3xl font-extrabold text-white mt-1.5 font-mono">Rp 0</h3>
                         <p class="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                            <span id="stat-dhcp-bound" class="text-emerald-300 font-medium">0</span> Bound clients active
+                            <span id="stat-omset-vouchers-today" class="text-amber-300 font-bold font-mono">0</span> voucher diaktifkan hari ini
                         </p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                        <i data-lucide="smartphone" class="w-6 h-6"></i>
+                    <div class="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition transform shrink-0">
+                        <i data-lucide="coins" class="w-6 h-6"></i>
                     </div>
                 </div>
-            </div>
+            </a>
 
             <!-- 3. PPPoE / Total Online -->
             <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-gray-800 hover:border-purple-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden transition group">

@@ -43,6 +43,8 @@ const el = {
     // Stats
     statHotspotCount: document.getElementById('stat-hotspot-count'),
     statHotspotRadius: document.getElementById('stat-hotspot-radius'),
+    statOmsetToday: document.getElementById('stat-omset-today'),
+    statOmsetVouchersToday: document.getElementById('stat-omset-vouchers-today'),
     statDhcpCount: document.getElementById('stat-dhcp-count'),
     statDhcpBound: document.getElementById('stat-dhcp-bound'),
     statTotalOnline: document.getElementById('stat-total-online'),
@@ -1179,11 +1181,22 @@ socket.on('initial_state', (data) => {
     if (data.interfaces && data.config) {
         populateInterfaceSelect(data.interfaces, data.config.wanInterface);
     }
+    if (data.voucherSummary) {
+        updateOmsetUI(data.voucherSummary);
+    }
 
     renderCurrentTable();
     renderLogs();
     renderInterfaces();
     lucide.createIcons();
+});
+
+socket.on('voucher_summary_update', (summary) => {
+    updateOmsetUI(summary);
+});
+
+socket.on('voucher_activated', (voucher) => {
+    fetchOmsetToday();
 });
 
 socket.on('user_event', (event) => {
@@ -1358,7 +1371,56 @@ function escapeJs(str) {
     return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
 
+// VOUCHER OMSET STATS CARD HELPER
+let currentRevenueToday = 0;
+function animateCurrency(element, startVal, endVal, duration = 600) {
+    if (!element) return;
+    startVal = Number(startVal) || 0;
+    endVal = Number(endVal) || 0;
+    if (startVal === endVal) {
+        element.textContent = `Rp ${endVal.toLocaleString('id-ID')}`;
+        return;
+    }
+    const startTime = performance.now();
+    function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const ease = 1 - Math.pow(1 - progress, 3);
+        const current = Math.round(startVal + (endVal - startVal) * ease);
+        element.textContent = `Rp ${current.toLocaleString('id-ID')}`;
+        if (progress < 1) {
+            requestAnimationFrame(step);
+        }
+    }
+    requestAnimationFrame(step);
+}
+
+function updateOmsetUI(summary) {
+    if (!summary || !summary.today) return;
+    const t = summary.today || {};
+    const rev = t.totalRevenue || 0;
+    const cnt = t.totalCount || 0;
+    animateCurrency(el.statOmsetToday, currentRevenueToday, rev);
+    currentRevenueToday = rev;
+    if (el.statOmsetVouchersToday) {
+        el.statOmsetVouchersToday.textContent = cnt;
+    }
+}
+
+async function fetchOmsetToday() {
+    try {
+        const res = await fetch('/api/vouchers/summary');
+        if (res.ok) {
+            const summary = await res.json();
+            updateOmsetUI(summary);
+        }
+    } catch (e) {}
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
     initChart();
+    fetchOmsetToday();
+    // Poll omset every 4 seconds to ensure 100% sync with real-time voucher sales
+    setInterval(fetchOmsetToday, 4000);
 });
