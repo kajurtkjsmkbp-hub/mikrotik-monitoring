@@ -13,7 +13,16 @@ Proyek ini adalah sistem **Dashboard Monitoring MikroTik & Manajemen Voucher Hot
 
 ---
 
-## 2. Parameter Jaringan & Router MikroTik
+## 2. Repositori GitHub & Lingkungan Deployment
+- **GitHub Repository**: [https://github.com/kajurtkjsmkbp-hub/mikrotik-monitoring](https://github.com/kajurtkjsmkbp-hub/mikrotik-monitoring)
+- **Branch Utama**: `main`
+- **Server Deployment**: Container LXC di **Proxmox VE** (Debian 12 / Ubuntu 22.04 LTS).
+- **Lokasi Folder di Proxmox**: `/opt/mikrotik-monitoring`
+- **Process Manager 24/7**: **PM2** (`pm2 start server.js --name mikrotik-dashboard`).
+
+---
+
+## 3. Parameter Jaringan & Router MikroTik
 - **IP Router**: `192.168.1.64`
 - **Port RouterOS API**: `8728`
 - **Username**: `admin`
@@ -26,19 +35,23 @@ Proyek ini adalah sistem **Dashboard Monitoring MikroTik & Manajemen Voucher Hot
 
 ---
 
-## 3. Struktur File & Modul Kode
+## 4. Struktur File & Modul Kode
 
 ```
-COBA/
+mikrotik-monitoring/
 ├── server.js               # Backend utama Express, Socket.IO, Polling MikroTik API & REST API
 ├── mikrotik.js             # Client TCP Socket RouterOS API port 8728 (query, login, parse)
 ├── voucher-db.js           # Engine database SQLite, parser Mikhmon HTML, aktivasi user, rekap omset
-├── test-relogin.js         # (File pengujian sementara, dapat dihapus/dibuat ulang bila perlu)
+├── update.sh               # Script otomatis update dari git tanpa merusak database
+├── .gitignore              # Memproteksi .env, node_modules, dan data/*.sqlite agar tidak tertimpa
+├── .env.example            # Template konfigurasi environment untuk server baru
+├── .env                    # Variabel environment router & server (TIDAK DIPUSH KE GIT)
 ├── package.json            # Dependensi: express, socket.io, sqlite3, dotenv, lucide, dll.
-├── .env                    # Variabel environment router & server
+├── README.md               # Dokumentasi instalasi Proxmox LXC & panduan penggunaan
+├── INGATAN.md              # Memori permanen arsitektur dan troubleshooting
 ├── data/
-│   ├── vouchers.sqlite     # Database SQLite utama penyimpan voucher & transaksi omset
-│   └── vouchers.json       # (File lama sebelum migrasi SQLite, data aktif ada di .sqlite)
+│   ├── .gitkeep            # Menjaga folder data tetap ada di repository git
+│   └── vouchers.sqlite     # Database SQLite lokal (TIDAK DIPUSH KE GIT / AMAN SAAT UPDATE)
 └── public/
     ├── index.html          # Tampilan Dashboard Utama (Traffic, Hotspot, PPP, DHCP, Log)
     ├── app.js              # Script frontend dashboard utama (interpolasi chart, polling, inspect)
@@ -48,7 +61,7 @@ COBA/
 
 ---
 
-## 4. Kategori Paket Voucher & Harga
+## 5. Kategori Paket Voucher & Harga
 
 Sistem mendukung 3 kategori paket voucher sesuai pesanan:
 1. **Paket Rp 1.000** (`1k`)
@@ -63,7 +76,7 @@ Sistem mendukung 3 kategori paket voucher sesuai pesanan:
 
 ---
 
-## 5. Mesin Ekstraksi Kode Voucher Mikhmon (Sangat Penting!)
+## 6. Mesin Ekstraksi Kode Voucher Mikhmon (Sangat Penting!)
 - **Format Username Voucher**: Berupa **6 karakter alfanumerik** kombinasi huruf dan angka (misal: `6b5txh`, `q5wvxc`, `c9v9iy`).
 - **Tantangan Mikhmon**: File cetak HTML Mikhmon (seperti `template baru (8).html`) mengandung ratusan kata HTML & CSS bawaan (seperti `border`, `button`, `italic`, `table`) yang berpanjang 6 karakter.
 - **Solusi Regex Presisi Tinggi**:
@@ -75,7 +88,7 @@ Sistem mendukung 3 kategori paket voucher sesuai pesanan:
 
 ---
 
-## 6. Aturan Bisnis & Siklus Hidup Voucher
+## 7. Aturan Bisnis & Siklus Hidup Voucher
 
 ### A. Kunci Aktivasi Pertama (First-Login Lock / Anti-Dobel Hitung)
 1. **Kondisi Awal (Baru Diimport)**:
@@ -101,8 +114,8 @@ Sistem mendukung 3 kategori paket voucher sesuai pesanan:
 
 ---
 
-## 7. Solusi Jika Server Mati Saat Pelanggan Login (Auto-Catch Up)
-Jika komputer server web dimatikan (misal malam hari atau listrik padam), sementara router MikroTik tetap hidup 24 jam dan ada pelanggan yang login:
+## 8. Solusi Jika Server Mati Saat Pelanggan Login (Auto-Catch Up)
+Jika komputer/LXC server web dimatikan (misal malam hari atau listrik padam), sementara router MikroTik tetap hidup 24 jam dan ada pelanggan yang login:
 
 1. **Pencatatan 24/7 di MikroTik**:
    MikroTik secara mandiri mencatat setiap pengguna yang pernah aktif di menu `/ip/hotspot/user` lengkap dengan parameter:
@@ -124,7 +137,7 @@ Jika komputer server web dimatikan (misal malam hari atau listrik padam), sement
 
 ---
 
-## 8. Pembukuan & Rekap Omset Harian
+## 9. Pembukuan & Rekap Omset Harian
 - **Periode Harian**: Pukul **00:00:00 s/d 23:59:59** waktu lokal.
 - **Tabel Rekap Buku Kas** di `/voucher.html`:
   - Menampilkan riwayat per hari (contoh: *Sabtu, 26 September 2026*).
@@ -134,42 +147,30 @@ Jika komputer server web dimatikan (misal malam hari atau listrik padam), sement
 
 ---
 
-## 9. Struktur Tabel SQLite (`data/vouchers.sqlite`)
+## 10. Catatan Khusus Linux / Proxmox & Solusi Masalah (Troubleshooting)
 
-```sql
-CREATE TABLE IF NOT EXISTS vouchers (
-    id TEXT PRIMARY KEY,
-    code TEXT UNIQUE NOT NULL,       -- Kode voucher 6 karakter (lowercase)
-    package_key TEXT NOT NULL,       -- '1k', '2k', atau '3k'
-    package_name TEXT NOT NULL,      -- 'Paket Rp 1.000', dll
-    price INTEGER NOT NULL,          -- 1000, 2000, 3000
-    duration TEXT NOT NULL,         -- '3 Jam', '10 Jam', '1 Hari'
-    status TEXT NOT NULL DEFAULT 'available', -- 'available' atau 'used'
-    source TEXT,                     -- Nama file cetak HTML asal impor
-    imported_at TEXT NOT NULL,       -- Timestamp ISO impor
-    activated_at TEXT,               -- Timestamp ISO login pertama
-    activated_date TEXT,             -- Format 'YYYY-MM-DD'
-    activated_time TEXT,             -- Format 'HH:MM:SS'
-    activated_day TEXT,              -- Nama hari Indonesia ('Senin', 'Sabtu', dll)
-    user_address TEXT,               -- IP address pelanggan saat login
-    user_mac TEXT,                   -- MAC address perangkat pelanggan
-    active_now INTEGER DEFAULT 0     -- 1 jika sedang online detik ini, 0 jika offline
-);
-```
+### A. Error GLIBC pada SQLite (`version GLIBC_2.38 not found`)
+- **Penyebab**: Paket `sqlite3` pada npm mengunduh binary pre-built yang dikompilasi pada GLIBC versi baru, sedangkan Debian 12 / Ubuntu 22.04 LTS menggunakan GLIBC 2.35 / 2.36.
+- **Solusi**:
+  Kompilasi ulang modul `sqlite3` langsung dari source code lokal LXC:
+  ```bash
+  apt install -y build-essential python3
+  cd /opt/mikrotik-monitoring
+  npm rebuild sqlite3 --build-from-source
+  pm2 restart mikrotik-dashboard
+  ```
+
+### B. Prosedur Update Aman (Tanpa Menimpa Database Proxmox)
+- File `data/*.sqlite*` dan `.env` sudah masuk ke `.gitignore`.
+- Menjalankan `git pull` di Proxmox **TIDAK AKAN PERNAH** menimpa database penjualan lokal yang sudah ada.
+- Gunakan perintah satu baris berikut di Proxmox:
+  ```bash
+  cd /opt/mikrotik-monitoring && chmod +x update.sh && ./update.sh
+  ```
+  atau:
+  ```bash
+  cd /opt/mikrotik-monitoring && git pull && npm install --omit=dev && pm2 restart mikrotik-dashboard
+  ```
 
 ---
-
-## 10. Perintah Penting (Quick Commands)
-- Menjalankan server:
-  ```powershell
-  node server.js
-  ```
-- Cek ringkasan database via CLI:
-  ```powershell
-  Invoke-RestMethod -Uri "http://localhost:3000/api/vouchers/summary" | ConvertTo-Json
-  ```
-- Membersihkan / reset testing:
-  Gunakan fungsi internal `voucherDb` atau API endpoint `/api/vouchers/clear-stock`.
-
----
-*Catatan Terakhir Diperbarui: 26 September 2026 - Semua modul telah diverifikasi, diuji coba nyata, dan berjalan stabil.*
+*Catatan Terakhir Diperbarui: 27 September 2026 - Dokumentasi lengkap dan diverifikasi pada repositori GitHub & environment Proxmox LXC.*

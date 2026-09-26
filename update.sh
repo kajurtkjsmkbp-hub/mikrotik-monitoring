@@ -17,6 +17,8 @@ git pull
 # 2. Update dependensi node jika ada paket baru
 echo "[2/4] Memeriksa dependensi package.json..."
 npm install --omit=dev
+# Pastikan driver binary sqlite3 selalu cocok dengan GLIBC lokal
+node -e "require('sqlite3')" 2>/dev/null || npm rebuild sqlite3 --build-from-source
 
 # 3. Pastikan folder data tetap ada
 mkdir -p data
