@@ -229,13 +229,14 @@ class VoucherSQLiteDatabase {
         const addedCodes = [];
         const duplicates = [];
 
-        for (const code of codes) {
-            const cleanCode = code.trim().toLowerCase();
-            const id = 'vc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        await this.run('BEGIN TRANSACTION');
+        try {
+            for (const code of codes) {
+                const cleanCode = code.trim().toLowerCase();
+                const id = 'vc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
 
-            try {
                 const res = await this.run(`
-                    INSERT INTO vouchers (
+                    INSERT OR IGNORE INTO vouchers (
                         id, code, package_key, package_name, price, duration, status, source, imported_at, active_now
                     ) VALUES (?, ?, ?, ?, ?, ?, 'available', ?, ?, 0)
                 `, [
@@ -244,14 +245,14 @@ class VoucherSQLiteDatabase {
 
                 if (res.changes > 0) {
                     addedCodes.push(cleanCode);
-                }
-            } catch (err) {
-                if (err.message && err.message.includes('UNIQUE constraint failed')) {
-                    duplicates.push(cleanCode);
                 } else {
-                    console.error('SQLite insert error:', err.message);
+                    duplicates.push(cleanCode);
                 }
             }
+            await this.run('COMMIT');
+        } catch (err) {
+            await this.run('ROLLBACK');
+            throw err;
         }
 
         return {
