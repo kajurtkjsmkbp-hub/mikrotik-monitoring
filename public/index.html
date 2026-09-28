@@ -159,22 +159,28 @@
                 </div>
             </a>
 
-            <!-- 3. PPPoE / Total Online -->
-            <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-gray-800 hover:border-purple-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden transition group">
+            <!-- 3. Total Omset Bulan Berjalan (dari Menu Voucher) -->
+            <a href="/voucher.html" target="_blank" title="Klik untuk membuka Halaman Manajemen Voucher & Riwayat Rekap Bulanan" class="block bg-gradient-to-br from-gray-900 to-gray-850 border border-purple-500/35 hover:border-purple-500/60 rounded-2xl p-5 shadow-lg relative overflow-hidden transition group cursor-pointer">
                 <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-purple-500/10 rounded-full blur-xl group-hover:bg-purple-500/20 transition"></div>
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-semibold uppercase tracking-wider text-purple-400">Total User Login</p>
-                        <h3 id="stat-total-online" class="text-3xl font-extrabold text-white mt-1.5">0</h3>
-                        <p class="text-xs text-gray-400 mt-1">
-                            PPPoE: <span id="stat-pppoe-count" class="text-purple-300 font-medium">0</span> user
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+                            <p class="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5 flex-wrap">
+                                <span>Omset Bulan Ini</span>
+                                <span id="stat-omset-month-badge" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 normal-case font-medium">Bulan Ini</span>
+                            </p>
+                        </div>
+                        <h3 id="stat-omset-month" class="text-3xl font-extrabold text-white mt-1.5 font-mono">Rp 0</h3>
+                        <p class="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                            <span id="stat-omset-vouchers-month" class="text-purple-300 font-bold font-mono">0</span> voucher diaktifkan bulan ini
                         </p>
                     </div>
-                    <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-                        <i data-lucide="users" class="w-6 h-6"></i>
+                    <div class="w-12 h-12 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-105 transition transform shrink-0">
+                        <i data-lucide="wallet" class="w-6 h-6"></i>
                     </div>
                 </div>
-            </div>
+            </a>
 
             <!-- 4. Realtime Bandwidth Traffic -->
             <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-gray-800 hover:border-cyan-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden transition group">
@@ -613,6 +619,6 @@
     <!-- Notification Toast Container -->
     <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
 
-    <script src="/app.js"></script>
+    <script src="/app.js?v=20260928_2"></script>
 </body>
 </html>

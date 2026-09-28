@@ -45,6 +45,9 @@ const el = {
     statHotspotRadius: document.getElementById('stat-hotspot-radius'),
     statOmsetToday: document.getElementById('stat-omset-today'),
     statOmsetVouchersToday: document.getElementById('stat-omset-vouchers-today'),
+    statOmsetMonthBadge: document.getElementById('stat-omset-month-badge'),
+    statOmsetMonth: document.getElementById('stat-omset-month'),
+    statOmsetVouchersMonth: document.getElementById('stat-omset-vouchers-month'),
     statDhcpCount: document.getElementById('stat-dhcp-count'),
     statDhcpBound: document.getElementById('stat-dhcp-bound'),
     statTotalOnline: document.getElementById('stat-total-online'),
@@ -1438,6 +1441,7 @@ function escapeJs(str) {
 
 // VOUCHER OMSET STATS CARD HELPER
 let currentRevenueToday = 0;
+let currentRevenueMonth = 0;
 function animateCurrency(element, startVal, endVal, duration = 500) {
     if (!element) return;
     startVal = Number(startVal) || 0;
@@ -1480,14 +1484,33 @@ function animateCurrency(element, startVal, endVal, duration = 500) {
 }
 
 function updateOmsetUI(summary) {
-    if (!summary || !summary.today) return;
-    const t = summary.today || {};
-    const rev = Math.max(0, t.totalRevenue || 0);
-    const cnt = Math.max(0, t.totalCount || 0);
-    animateCurrency(el.statOmsetToday, currentRevenueToday, rev);
-    currentRevenueToday = rev;
-    if (el.statOmsetVouchersToday) {
-        el.statOmsetVouchersToday.textContent = cnt;
+    if (!summary) return;
+
+    // 1. Hari Ini
+    if (summary.today) {
+        const t = summary.today || {};
+        const rev = Math.max(0, t.totalRevenue || 0);
+        const cnt = Math.max(0, t.totalCount || 0);
+        animateCurrency(el.statOmsetToday, currentRevenueToday, rev);
+        currentRevenueToday = rev;
+        if (el.statOmsetVouchersToday) {
+            el.statOmsetVouchersToday.textContent = cnt;
+        }
+    }
+
+    // 2. Bulan Berjalan (This Month)
+    if (summary.thisMonth) {
+        const m = summary.thisMonth || {};
+        const revM = Math.max(0, m.totalRevenue || 0);
+        const cntM = Math.max(0, m.totalCount || 0);
+        animateCurrency(el.statOmsetMonth, currentRevenueMonth, revM);
+        currentRevenueMonth = revM;
+        if (el.statOmsetVouchersMonth) {
+            el.statOmsetVouchersMonth.textContent = cntM;
+        }
+        if (el.statOmsetMonthBadge && (m.monthLabel || m.monthName)) {
+            el.statOmsetMonthBadge.textContent = m.monthLabel || m.monthName;
+        }
     }
 }
 
