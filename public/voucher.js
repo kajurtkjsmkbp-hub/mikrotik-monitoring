@@ -21,77 +21,76 @@ let vState = {
     }
 };
 
-// Elements
-const vel = {
-    clock: document.getElementById('voucher-clock'),
-    headerTodayDate: document.getElementById('header-today-date'),
-    btnSyncRouter: document.getElementById('btn-sync-router'),
-    syncIcon: document.getElementById('sync-icon'),
+// Safe Event Listener Helper
+function on(el, event, handler) {
+    if (el && typeof el.addEventListener === 'function') {
+        el.addEventListener(event, handler);
+    }
+}
 
-    // Top Stats
-    statTotalRevenueToday: document.getElementById('stat-total-revenue-today'),
-    statTotalUsedToday: document.getElementById('stat-total-used-today'),
-    statCurrentMonthName: document.getElementById('stat-current-month-name'),
-    statTotalRevenueMonth: document.getElementById('stat-total-revenue-month'),
-    statRevenue1kToday: document.getElementById('stat-revenue-1k-today'),
-    statCount1kToday: document.getElementById('stat-count-1k-today'),
-    statStock1k: document.getElementById('stat-stock-1k'),
-    cardStock1k: document.getElementById('card-stock-1k'),
-
-    statRevenue2kToday: document.getElementById('stat-revenue-2k-today'),
-    statCount2kToday: document.getElementById('stat-count-2k-today'),
-    statStock2k: document.getElementById('stat-stock-2k'),
-    cardStock2k: document.getElementById('card-stock-2k'),
-
-    statRevenue3kToday: document.getElementById('stat-revenue-3k-today'),
-    statCount3kToday: document.getElementById('stat-count-3k-today'),
-    statStock3k: document.getElementById('stat-stock-3k'),
-    cardStock3k: document.getElementById('card-stock-3k'),
-
-    // History Tabs & Tables
-    tabRekapHarian: document.getElementById('tab-rekap-harian'),
-    tabRekapBulanan: document.getElementById('tab-rekap-bulanan'),
-    containerDailyHistory: document.getElementById('container-daily-history'),
-    containerMonthlyHistory: document.getElementById('container-monthly-history'),
-    dailyHistoryTbody: document.getElementById('daily-history-tbody'),
-    monthlyHistoryTbody: document.getElementById('monthly-history-tbody'),
-    historyFilterBadge: document.getElementById('history-filter-badge'),
-    historyFilterMonthText: document.getElementById('history-filter-month-text'),
-    btnExportHistoryCsv: document.getElementById('btn-export-history-csv'),
-    exportHistoryLabel: document.getElementById('export-history-label'),
-
-    // Vouchers Table & Filter
-    filterStatus: document.getElementById('filter-status'),
-    filterPackage: document.getElementById('filter-package'),
-    voucherSearch: document.getElementById('voucher-search'),
-    vouchersTbody: document.getElementById('vouchers-tbody'),
-    paginationInfo: document.getElementById('pagination-info'),
-    pageIndicator: document.getElementById('page-indicator'),
-    btnPrevPage: document.getElementById('btn-prev-page'),
-    btnNextPage: document.getElementById('btn-next-page'),
-
-    // Preview Modal
-    modalImportPreview: document.getElementById('modal-import-preview'),
-    previewModalSubtitle: document.getElementById('preview-modal-subtitle'),
-    previewFilename: document.getElementById('preview-filename'),
-    previewTotalCount: document.getElementById('preview-total-count'),
-    previewCodesBox: document.getElementById('preview-codes-box'),
-    btnClosePreview: document.getElementById('btn-close-preview'),
-    btnCancelPreview: document.getElementById('btn-cancel-preview'),
-    btnConfirmImport: document.getElementById('btn-confirm-import'),
-
-    // Paste Modal
-    modalPaste: document.getElementById('modal-paste'),
-    pasteModalSubtitle: document.getElementById('paste-modal-subtitle'),
-    pasteTextarea: document.getElementById('paste-textarea'),
-    btnClosePaste: document.getElementById('btn-close-paste'),
-    btnCancelPaste: document.getElementById('btn-cancel-paste'),
-    btnConfirmPaste: document.getElementById('btn-confirm-paste'),
-
-    // Alerts & Toasts
-    floatingAlerts: document.getElementById('voucher-floating-alerts'),
-    toastContainer: document.getElementById('voucher-toast-container')
-};
+// Dynamic Elements Accessor (Prevents caching null if DOM is not immediately ready)
+const vel = new Proxy({}, {
+    get(target, prop) {
+        const idMap = {
+            clock: 'voucher-clock',
+            headerTodayDate: 'header-today-date',
+            btnSyncRouter: 'btn-sync-router',
+            syncIcon: 'sync-icon',
+            statTotalRevenueToday: 'stat-total-revenue-today',
+            statTotalUsedToday: 'stat-total-used-today',
+            statCurrentMonthName: 'stat-current-month-name',
+            statTotalRevenueMonth: 'stat-total-revenue-month',
+            statRevenue1kToday: 'stat-revenue-1k-today',
+            statCount1kToday: 'stat-count-1k-today',
+            statStock1k: 'stat-stock-1k',
+            cardStock1k: 'card-stock-1k',
+            statRevenue2kToday: 'stat-revenue-2k-today',
+            statCount2kToday: 'stat-count-2k-today',
+            statStock2k: 'stat-stock-2k',
+            cardStock2k: 'card-stock-2k',
+            statRevenue3kToday: 'stat-revenue-3k-today',
+            statCount3kToday: 'stat-count-3k-today',
+            statStock3k: 'stat-stock-3k',
+            cardStock3k: 'card-stock-3k',
+            tabRekapHarian: 'tab-rekap-harian',
+            tabRekapBulanan: 'tab-rekap-bulanan',
+            containerDailyHistory: 'container-daily-history',
+            containerMonthlyHistory: 'container-monthly-history',
+            dailyHistoryTbody: 'daily-history-tbody',
+            monthlyHistoryTbody: 'monthly-history-tbody',
+            historyFilterBadge: 'history-filter-badge',
+            historyFilterMonthText: 'history-filter-month-text',
+            btnExportHistoryCsv: 'btn-export-history-csv',
+            exportHistoryLabel: 'export-history-label',
+            filterStatus: 'filter-status',
+            filterPackage: 'filter-package',
+            voucherSearch: 'voucher-search',
+            vouchersTbody: 'vouchers-tbody',
+            paginationInfo: 'pagination-info',
+            pageIndicator: 'page-indicator',
+            btnPrevPage: 'btn-prev-page',
+            btnNextPage: 'btn-next-page',
+            modalImportPreview: 'modal-import-preview',
+            previewModalSubtitle: 'preview-modal-subtitle',
+            previewFilename: 'preview-filename',
+            previewTotalCount: 'preview-total-count',
+            previewCodesBox: 'preview-codes-box',
+            btnClosePreview: 'btn-close-preview',
+            btnCancelPreview: 'btn-cancel-preview',
+            btnConfirmImport: 'btn-confirm-import',
+            modalPaste: 'modal-paste',
+            pasteModalSubtitle: 'paste-modal-subtitle',
+            pasteTextarea: 'paste-textarea',
+            btnClosePaste: 'btn-close-paste',
+            btnCancelPaste: 'btn-cancel-paste',
+            btnConfirmPaste: 'btn-confirm-paste',
+            floatingAlerts: 'voucher-floating-alerts',
+            toastContainer: 'voucher-toast-container'
+        };
+        const id = idMap[prop] || prop;
+        return document.getElementById(id);
+    }
+});
 
 // Web Audio Cash Register Chime on Voucher Activation (Singleton AudioContext)
 let sharedVoucherAudioCtx = null;
@@ -563,60 +562,74 @@ async function loadVouchers() {
 async function loadInitialData() {
     try {
         const res = await fetch('/api/vouchers/summary');
-        const summary = await res.json();
-        renderSummary(summary);
-    } catch (e) {}
+        if (res.ok) {
+            const summary = await res.json();
+            renderSummary(summary);
+        }
+    } catch (e) {
+        console.error('Error loading summary:', e);
+    }
 
-    await loadDailyHistory();
-    await loadVouchers();
+    try {
+        await loadDailyHistory();
+    } catch (e) {
+        console.error('Error loading daily history:', e);
+    }
+
+    try {
+        await loadVouchers();
+    } catch (e) {
+        console.error('Error loading vouchers:', e);
+    }
 }
 
 // Filter by Date from Daily History Row
 window.filterByDate = function(dateKey) {
     vState.dateFilter = dateKey;
     vState.statusFilter = 'used';
-    vel.filterStatus.value = 'used';
+    if (vel.filterStatus) vel.filterStatus.value = 'used';
     vState.currentPage = 1;
     loadVouchers();
     showToast(`Memfilter voucher yang aktif pada tanggal ${dateKey}`, 'info');
-    document.querySelector('section:last-of-type').scrollIntoView({ behavior: 'smooth' });
+    const tableSection = document.querySelector('section:last-of-type');
+    if (tableSection) tableSection.scrollIntoView({ behavior: 'smooth' });
 };
 
 // Filter Changes
-vel.filterStatus.addEventListener('change', (e) => {
+on(vel.filterStatus, 'change', (e) => {
     vState.statusFilter = e.target.value;
     vState.currentPage = 1;
     loadVouchers();
 });
 
-vel.filterPackage.addEventListener('change', (e) => {
+on(vel.filterPackage, 'change', (e) => {
     vState.packageFilter = e.target.value;
     vState.currentPage = 1;
     loadVouchers();
 });
 
-vel.voucherSearch.addEventListener('input', (e) => {
+on(vel.voucherSearch, 'input', (e) => {
     vState.searchQuery = e.target.value.trim();
     vState.currentPage = 1;
     loadVouchers();
 });
 
 // Pagination
-vel.btnPrevPage.addEventListener('click', () => {
+on(vel.btnPrevPage, 'click', () => {
     if (vState.currentPage > 1) {
         vState.currentPage--;
         loadVouchers();
     }
 });
 
-vel.btnNextPage.addEventListener('click', () => {
+on(vel.btnNextPage, 'click', () => {
     vState.currentPage++;
     loadVouchers();
 });
 
 // Sync with Router Action
-vel.btnSyncRouter.addEventListener('click', async () => {
-    vel.syncIcon.classList.add('animate-spin');
+on(vel.btnSyncRouter, 'click', async () => {
+    if (vel.syncIcon) vel.syncIcon.classList.add('animate-spin');
     try {
         const res = await fetch('/api/vouchers/sync-router', { method: 'POST' });
         const data = await res.json();
@@ -631,7 +644,9 @@ vel.btnSyncRouter.addEventListener('click', async () => {
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     } finally {
-        setTimeout(() => vel.syncIcon.classList.remove('animate-spin'), 600);
+        setTimeout(() => {
+            if (vel.syncIcon) vel.syncIcon.classList.remove('animate-spin');
+        }, 600);
     }
 });
 
@@ -774,12 +789,14 @@ function extractCodesClient(content) {
 }
 
 // Confirm Import API Call
-vel.btnConfirmImport.addEventListener('click', async () => {
+on(vel.btnConfirmImport, 'click', async () => {
     if (!vState.pendingImport.packageKey || !vState.pendingImport.content) return;
 
-    vel.btnConfirmImport.disabled = true;
-    vel.btnConfirmImport.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Menyimpan...`;
-    lucide.createIcons({ root: vel.btnConfirmImport });
+    if (vel.btnConfirmImport) {
+        vel.btnConfirmImport.disabled = true;
+        vel.btnConfirmImport.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Menyimpan...`;
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ root: vel.btnConfirmImport });
+    }
 
     try {
         const res = await fetch('/api/vouchers/import', {
@@ -795,8 +812,10 @@ vel.btnConfirmImport.addEventListener('click', async () => {
         const data = await res.json();
         if (data.success) {
             showToast(`Berhasil menyimpan ${data.addedCount} voucher baru ke database! (Duplikat dilewati: ${data.duplicateCount})`, 'success');
-            vel.modalImportPreview.classList.add('hidden');
-            vel.modalImportPreview.classList.remove('flex');
+            if (vel.modalImportPreview) {
+                vel.modalImportPreview.classList.add('hidden');
+                vel.modalImportPreview.classList.remove('flex');
+            }
             vState.pendingImport = { packageKey: null, fileName: null, content: null, codes: [] };
 
             // Reload UI
@@ -807,19 +826,25 @@ vel.btnConfirmImport.addEventListener('click', async () => {
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     } finally {
-        vel.btnConfirmImport.disabled = false;
-        vel.btnConfirmImport.innerHTML = `<i data-lucide="check" class="w-4 h-4"></i> <span>Simpan ke Database</span>`;
-        lucide.createIcons({ root: vel.btnConfirmImport });
+        if (vel.btnConfirmImport) {
+            vel.btnConfirmImport.disabled = false;
+            vel.btnConfirmImport.innerHTML = `<i data-lucide="check" class="w-4 h-4"></i> <span>Simpan ke Database</span>`;
+            if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ root: vel.btnConfirmImport });
+        }
     }
 });
 
-vel.btnClosePreview.addEventListener('click', () => {
-    vel.modalImportPreview.classList.add('hidden');
-    vel.modalImportPreview.classList.remove('flex');
+on(vel.btnClosePreview, 'click', () => {
+    if (vel.modalImportPreview) {
+        vel.modalImportPreview.classList.add('hidden');
+        vel.modalImportPreview.classList.remove('flex');
+    }
 });
-vel.btnCancelPreview.addEventListener('click', () => {
-    vel.modalImportPreview.classList.add('hidden');
-    vel.modalImportPreview.classList.remove('flex');
+on(vel.btnCancelPreview, 'click', () => {
+    if (vel.modalImportPreview) {
+        vel.modalImportPreview.classList.add('hidden');
+        vel.modalImportPreview.classList.remove('flex');
+    }
 });
 
 // Manual Paste Modal
@@ -831,23 +856,29 @@ window.openPasteModal = function(pkgKey) {
         '2k': 'Paket Rp 2.000 (10 Jam)',
         '3k': 'Paket Rp 3.000 (1 Hari / 24 Jam)'
     };
-    vel.pasteModalSubtitle.textContent = `Untuk ${pkgNames[pkgKey] || pkgKey}`;
-    vel.pasteTextarea.value = '';
-    vel.modalPaste.classList.remove('hidden');
-    vel.modalPaste.classList.add('flex');
+    if (vel.pasteModalSubtitle) vel.pasteModalSubtitle.textContent = `Untuk ${pkgNames[pkgKey] || pkgKey}`;
+    if (vel.pasteTextarea) vel.pasteTextarea.value = '';
+    if (vel.modalPaste) {
+        vel.modalPaste.classList.remove('hidden');
+        vel.modalPaste.classList.add('flex');
+    }
 };
 
-vel.btnClosePaste.addEventListener('click', () => {
-    vel.modalPaste.classList.add('hidden');
-    vel.modalPaste.classList.remove('flex');
+on(vel.btnClosePaste, 'click', () => {
+    if (vel.modalPaste) {
+        vel.modalPaste.classList.add('hidden');
+        vel.modalPaste.classList.remove('flex');
+    }
 });
-vel.btnCancelPaste.addEventListener('click', () => {
-    vel.modalPaste.classList.add('hidden');
-    vel.modalPaste.classList.remove('flex');
+on(vel.btnCancelPaste, 'click', () => {
+    if (vel.modalPaste) {
+        vel.modalPaste.classList.add('hidden');
+        vel.modalPaste.classList.remove('flex');
+    }
 });
 
-vel.btnConfirmPaste.addEventListener('click', async () => {
-    const rawText = vel.pasteTextarea.value.trim();
+on(vel.btnConfirmPaste, 'click', async () => {
+    const rawText = vel.pasteTextarea ? vel.pasteTextarea.value.trim() : '';
     if (!rawText) {
         showToast('Silakan masukkan minimal satu kode voucher', 'error');
         return;
@@ -867,8 +898,10 @@ vel.btnConfirmPaste.addEventListener('click', async () => {
         const data = await res.json();
         if (data.success) {
             showToast(`Berhasil menyimpan ${data.addedCount} voucher baru ke database! (Duplikat: ${data.duplicateCount})`, 'success');
-            vel.modalPaste.classList.add('hidden');
-            vel.modalPaste.classList.remove('flex');
+            if (vel.modalPaste) {
+                vel.modalPaste.classList.add('hidden');
+                vel.modalPaste.classList.remove('flex');
+            }
             loadInitialData();
         } else {
             showToast(`Gagal: ${data.error}`, 'error');
@@ -969,8 +1002,9 @@ window.exportHistoryCsv = async function() {
     }
 };
 
-if (vel.btnExportHistoryCsv) {
-    vel.btnExportHistoryCsv.addEventListener('click', window.exportHistoryCsv);
+const exportBtn = document.getElementById('btn-export-history-csv') || document.getElementById('btn-export-daily-csv');
+if (exportBtn) {
+    on(exportBtn, 'click', window.exportHistoryCsv);
 }
 
 // Real-time Socket.io Listeners
@@ -1007,8 +1041,19 @@ function escapeHtml(str) {
 }
 
 // Start
-document.addEventListener('DOMContentLoaded', () => {
-    lucide.createIcons();
+let isVoucherInitialized = false;
+function initVoucherApp() {
+    if (isVoucherInitialized) return;
+    isVoucherInitialized = true;
+
+    try {
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    } catch (e) {
+        console.error('Lucide error:', e);
+    }
+
     loadInitialData();
 
     // Auto-refresh summary every 3 seconds so stock & revenue stay 100% in sync without manual reload
@@ -1021,5 +1066,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (e) {}
     }, 3000);
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initVoucherApp);
+} else {
+    initVoucherApp();
+}
 
