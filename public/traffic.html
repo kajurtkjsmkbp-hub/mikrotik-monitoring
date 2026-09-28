@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pemakaian Trafik & Kuota - MikroTik Live Monitor</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0b0f19',
+                        darkcard: '#111827',
+                        darkborder: '#1f2937',
+                        darkaccent: '#1e293b'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Socket.io -->
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body class="bg-[#0b0f19] text-gray-100 min-h-screen antialiased flex flex-col font-sans">
+
+    <!-- Top Navigation Bar -->
+    <header class="sticky top-0 z-40 bg-[#111827]/95 backdrop-blur-md border-b border-gray-800 px-4 lg:px-8 py-3.5 shadow-lg shadow-black/30">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <!-- Brand & Page Title -->
+            <div class="flex items-center space-x-3.5">
+                <a href="/" title="Kembali ke Dashboard Utama" class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-teal-500 to-emerald-400 p-0.5 shadow-lg shadow-cyan-500/20 flex items-center justify-center hover:scale-105 transition transform">
+                    <div class="w-full h-full bg-[#111827] rounded-[10px] flex items-center justify-center">
+                        <i data-lucide="activity" class="w-5 h-5 text-cyan-400"></i>
+                    </div>
+                </a>
+                <div>
+                    <div class="flex items-center space-x-2.5">
+                        <h1 class="font-bold text-lg text-white tracking-wide">Pemakaian Trafik & Kuota</h1>
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" title="Data pemakaian tetap tersimpan akurat di database lokal meskipun router mati atau di-restart">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <span>Proteksi Restart MikroTik Aktif</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center text-xs text-gray-400 space-x-3 mt-0.5">
+                        <span class="flex items-center gap-1 text-gray-400">
+                            <i data-lucide="database" class="w-3.5 h-3.5 text-cyan-400"></i> Akumulasi SQLite Real-Time
+                        </span>
+                        <span>•</span>
+                        <span id="header-today-date" class="text-gray-300 font-mono">Memuat tanggal...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Actions, Interface Selector & Navigation Links -->
+            <div class="flex items-center flex-wrap gap-2.5">
+                <!-- Interface Selector -->
+                <div class="flex items-center bg-gray-800/80 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300">
+                    <i data-lucide="cpu" class="w-3.5 h-3.5 mr-1.5 text-cyan-400"></i>
+                    <span class="mr-1.5 text-gray-400 hidden sm:inline">Interface:</span>
+                    <select id="traffic-iface-select" class="bg-transparent text-white font-medium focus:outline-none cursor-pointer">
+                        <option value="ether1-internet" class="bg-gray-800">ether1-internet (WAN)</option>
+                    </select>
+                </div>
+
+                <!-- Clock -->
+                <div class="hidden sm:flex flex-col text-right text-xs px-3 py-1 bg-gray-800/50 border border-gray-800 rounded-lg">
+                    <span id="traffic-clock" class="font-mono text-cyan-300 font-semibold">--:--:--</span>
+                    <span class="text-[10px] text-gray-400">WIB (GMT+7)</span>
+                </div>
+
+                <!-- Refresh Button -->
+                <button id="btn-refresh-traffic" title="Segarkan Data Pemakaian" class="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition border border-gray-700">
+                    <i id="traffic-refresh-icon" data-lucide="refresh-cw" class="w-4 h-4 text-cyan-400"></i>
+                </button>
+
+                <!-- Menu Voucher Button -->
+                <a href="/voucher.html" title="Buka Manajemen Voucher Hotspot" class="px-3.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition">
+                    <i data-lucide="ticket" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span>Menu Voucher</span>
+                </a>
+
+                <!-- Back to Main Dashboard Button -->
+                <a href="/" class="px-3.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-semibold flex items-center gap-1.5 transition">
+                    <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
+                    <span>Dashboard Utama</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto w-full px-4 lg:px-8 py-6 space-y-6 flex-1">
+
+        <!-- Banner Info Proteksi Reboot MikroTik -->
+        <section class="bg-gradient-to-r from-emerald-950/40 via-cyan-950/30 to-blue-950/30 border border-emerald-500/30 rounded-2xl p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                    <i data-lucide="shield-check" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-white text-sm flex items-center gap-2">
+                        <span>Perhitungan Trafik Anti-Hilang & Tahan Restart Router</span>
+                        <span class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">Auto Delta Safe</span>
+                    </h3>
+                    <p class="text-gray-300 mt-0.5">
+                        MikroTik secara normal mereset counter byte ke 0 setiap kali restart/listrik padam. Sistem ini secara otomatis mendeteksi reboot, mengunci data sebelum restart, dan mengakumulasikan trafik baru ke database lokal SQLite secara persisten.
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 text-gray-400 font-mono self-end sm:self-center flex-shrink-0">
+                <span id="reboot-status-badge" class="px-2.5 py-1 rounded-lg bg-gray-800/80 border border-gray-700 text-gray-300 flex items-center gap-1.5">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400"></i>
+                    <span id="reboot-count-today">0x restart hari ini</span>
+                </span>
+            </div>
+        </section>
+
+        <!-- Top Traffic Summary Cards (4 KPI Cards) -->
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            
+            <!-- 1. Pemakaian Hari Ini -->
+            <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-cyan-500/40 rounded-2xl p-5 shadow-xl relative overflow-hidden group">
+                <div class="absolute -right-4 -bottom-4 w-28 h-28 bg-cyan-500/10 rounded-full blur-xl group-hover:bg-cyan-500/20 transition"></div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                            <p class="text-xs font-bold uppercase tracking-wider text-cyan-400">Pemakaian Hari Ini</p>
+                        </div>
+                        <h3 id="stat-today-total" class="text-3xl font-extrabold text-white mt-1.5 font-mono">0 B</h3>
+                        <div class="flex items-center gap-2 mt-2 text-xs">
+                            <span class="text-cyan-300 flex items-center gap-1 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/50">
+                                <i data-lucide="arrow-down" class="w-3 h-3"></i> <span id="stat-today-rx">0 B</span>
+                            </span>
+                            <span class="text-purple-300 flex items-center gap-1 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/50">
+                                <i data-lucide="arrow-up" class="w-3 h-3"></i> <span id="stat-today-tx">0 B</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+                        <i data-lucide="hard-drive-download" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-gray-800/60 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Kemarin: <strong id="stat-yesterday-total" class="text-gray-300">0 B</strong></span>
+                    <span id="stat-today-diff" class="text-cyan-400 font-semibold">0% vs Kemarin</span>
+                </div>
+            </div>
+
+            <!-- 2. Pemakaian Minggu Ini (7 Hari) -->
+            <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-teal-500/30 rounded-2xl p-5 shadow-lg relative overflow-hidden group">
+                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-teal-500/10 rounded-full blur-xl group-hover:bg-teal-500/20 transition"></div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-teal-400">Minggu Ini (7 Hari)</p>
+                        <h3 id="stat-week-total" class="text-3xl font-extrabold text-white mt-1.5 font-mono">0 B</h3>
+                        <div class="flex items-center gap-2 mt-2 text-xs">
+                            <span class="text-teal-300 flex items-center gap-1">
+                                <i data-lucide="arrow-down" class="w-3 h-3 text-cyan-400"></i> <span id="stat-week-rx">0 B</span>
+                            </span>
+                            <span class="text-purple-300 flex items-center gap-1">
+                                <i data-lucide="arrow-up" class="w-3 h-3 text-purple-400"></i> <span id="stat-week-tx">0 B</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                        <i data-lucide="calendar-range" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-gray-800/60 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Total Hari Aktif: <strong id="stat-week-days" class="text-gray-300">0 hari</strong></span>
+                    <span class="text-teal-400">Akumulatif 7 Hari</span>
+                </div>
+            </div>
+
+            <!-- 3. Pemakaian Bulan Ini -->
+            <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-blue-500/30 rounded-2xl p-5 shadow-lg relative overflow-hidden group">
+                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-blue-500/10 rounded-full blur-xl group-hover:bg-blue-500/20 transition"></div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center gap-1.5">
+                            <p class="text-xs font-semibold uppercase tracking-wider text-blue-400">Bulan Ini</p>
+                            <span id="stat-month-badge" class="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.2 rounded font-mono">Bulan</span>
+                        </div>
+                        <h3 id="stat-month-total" class="text-3xl font-extrabold text-white mt-1.5 font-mono">0 B</h3>
+                        <div class="flex items-center gap-2 mt-2 text-xs">
+                            <span class="text-blue-300 flex items-center gap-1">
+                                <i data-lucide="arrow-down" class="w-3 h-3 text-cyan-400"></i> <span id="stat-month-rx">0 B</span>
+                            </span>
+                            <span class="text-purple-300 flex items-center gap-1">
+                                <i data-lucide="arrow-up" class="w-3 h-3 text-purple-400"></i> <span id="stat-month-tx">0 B</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                        <i data-lucide="calendar" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-gray-800/60 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Rata-rata: <strong id="stat-month-avg" class="text-gray-300">0 B/hari</strong></span>
+                    <span class="text-blue-400"><span id="stat-month-days">0</span> hari aktif</span>
+                </div>
+            </div>
+
+            <!-- 4. Pemakaian Tahun Ini -->
+            <div class="bg-gradient-to-br from-gray-900 to-gray-850 border border-indigo-500/30 rounded-2xl p-5 shadow-lg relative overflow-hidden group">
+                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-indigo-500/10 rounded-full blur-xl group-hover:bg-indigo-500/20 transition"></div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center gap-1.5">
+                            <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Tahun Ini</p>
+                            <span id="stat-year-badge" class="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 rounded font-mono">Tahun</span>
+                        </div>
+                        <h3 id="stat-year-total" class="text-3xl font-extrabold text-white mt-1.5 font-mono">0 B</h3>
+                        <div class="flex items-center gap-2 mt-2 text-xs">
+                            <span class="text-indigo-300 flex items-center gap-1">
+                                <i data-lucide="arrow-down" class="w-3 h-3 text-cyan-400"></i> <span id="stat-year-rx">0 B</span>
+                            </span>
+                            <span class="text-purple-300 flex items-center gap-1">
+                                <i data-lucide="arrow-up" class="w-3 h-3 text-purple-400"></i> <span id="stat-year-tx">0 B</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <i data-lucide="globe" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-gray-800/60 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Akumulasi Tahunan</span>
+                    <span class="text-indigo-400 font-medium">Buku Besar Trafik</span>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Live Bandwidth Speed & Jam Puncak Widget -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- Speed DL & UL Realtime -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                            <i data-lucide="gauge" class="w-4 h-4 text-cyan-400"></i> Kecepatan Realtime Saat Ini
+                        </span>
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mt-1">
+                        <div class="bg-gray-850 border border-gray-800 rounded-xl p-3.5 text-center">
+                            <span class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider block">Download (RX)</span>
+                            <span id="live-rx-speed" class="text-xl sm:text-2xl font-black text-white font-mono mt-1 block">0 bps</span>
+                        </div>
+                        <div class="bg-gray-850 border border-gray-800 rounded-xl p-3.5 text-center">
+                            <span class="text-[11px] font-semibold text-purple-400 uppercase tracking-wider block">Upload (TX)</span>
+                            <span id="live-tx-speed" class="text-xl sm:text-2xl font-black text-white font-mono mt-1 block">0 bps</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-400 flex items-center justify-between border-t border-gray-800 pt-2">
+                    <span id="live-iface-name" class="font-mono text-cyan-300">ether1-internet</span>
+                    <span id="live-router-uptime">Uptime: --</span>
+                </div>
+            </div>
+
+            <!-- Jam Tersibuk (Peak Hour) Hari Ini -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                            <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i> Jam Puncak (Peak Hour) Hari Ini
+                        </span>
+                        <span class="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">Tersibuk</span>
+                    </div>
+                    <div class="bg-gray-850 border border-gray-800 rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <span class="text-xs text-gray-400 block">Rentang Jam:</span>
+                            <h4 id="peak-hour-label" class="text-xl font-black text-amber-300 font-mono mt-0.5">Belum Ada Data</h4>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs text-gray-400 block">Total Volume Jam Ini:</span>
+                            <span id="peak-hour-total" class="text-xl font-black text-white font-mono mt-0.5 block">0 B</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-400 flex items-center justify-between border-t border-gray-800 pt-2">
+                    <span>Download: <strong id="peak-hour-rx" class="text-cyan-400">0 B</strong></span>
+                    <span>Upload: <strong id="peak-hour-tx" class="text-purple-400">0 B</strong></span>
+                </div>
+            </div>
+
+            <!-- Rasio Download vs Upload Hari Ini -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                            <i data-lucide="pie-chart" class="w-4 h-4 text-emerald-400"></i> Rasio Konsumsi Bandwidth
+                        </span>
+                        <span class="text-[10px] text-gray-400">Download vs Upload</span>
+                    </div>
+                    <!-- Visual Progress Bar Rasio -->
+                    <div class="space-y-2 mt-2">
+                        <div class="w-full bg-gray-800 h-4 rounded-full overflow-hidden flex">
+                            <div id="ratio-rx-bar" class="bg-gradient-to-r from-cyan-500 to-teal-400 h-full transition-all duration-500" style="width: 50%;"></div>
+                            <div id="ratio-tx-bar" class="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-500" style="width: 50%;"></div>
+                        </div>
+                        <div class="flex items-center justify-between text-xs font-mono font-semibold pt-1">
+                            <span class="text-cyan-400 flex items-center gap-1">
+                                <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
+                                Download: <span id="ratio-rx-pct">50%</span>
+                            </span>
+                            <span class="text-purple-400 flex items-center gap-1">
+                                Upload: <span id="ratio-tx-pct">50%</span>
+                                <span class="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"></span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-400 flex items-center justify-between border-t border-gray-800 pt-2">
+                    <span>Dominasi: <strong id="ratio-dominance" class="text-gray-200">Download Tinggi</strong></span>
+                    <span class="text-emerald-400">Pola Konsumsi Normal</span>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Grafik Visual Trafik (Chart.js) -->
+        <section class="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-gray-800 pb-3.5">
+                <div>
+                    <h3 class="font-bold text-white text-base flex items-center gap-2">
+                        <i data-lucide="bar-chart-3" class="w-5 h-5 text-cyan-400"></i>
+                        <span>Grafik Tren Pemakaian Bandwidth</span>
+                    </h3>
+                    <p class="text-xs text-gray-400 mt-0.5">Visualisasi pergerakan volume download (RX) dan upload (TX)</p>
+                </div>
+                <!-- Chart Mode Buttons -->
+                <div class="flex items-center bg-gray-850 p-1 rounded-xl border border-gray-800 text-xs">
+                    <button id="btn-chart-24h" class="px-3 py-1.5 rounded-lg font-semibold transition bg-cyan-500 text-gray-950 shadow">
+                        24 Jam Hari Ini
+                    </button>
+                    <button id="btn-chart-30d" class="px-3 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition">
+                        30 Hari Terakhir
+                    </button>
+                    <button id="btn-chart-12m" class="px-3 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition">
+                        12 Bulan
+                    </button>
+                </div>
+            </div>
+            <!-- Canvas Container -->
+            <div class="relative h-64 sm:h-80 w-full">
+                <canvas id="trafficChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Tabel Rangkuman Riwayat Buku Trafik -->
+        <section class="bg-gray-900 border border-gray-800 rounded-2xl shadow-xl overflow-hidden">
+            <!-- Header Card & Tab Switcher -->
+            <div class="p-5 border-b border-gray-800 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                            <i data-lucide="table" class="w-5 h-5 text-cyan-400"></i>
+                            <span>Buku Rekapitulasi Pemakaian Trafik</span>
+                        </h3>
+                        <p class="text-xs text-gray-400 mt-0.5">Laporan pembukuan kuota & konsumsi bandwidth terperinci</p>
+                    </div>
+
+                    <!-- 4 Period Tabs (Harian, Mingguan, Bulanan, Tahunan) -->
+                    <div class="flex items-center bg-gray-850 p-1 rounded-xl border border-gray-800 text-xs self-start md:self-auto flex-wrap">
+                        <button id="tab-daily" class="px-3.5 py-1.5 rounded-lg font-semibold transition bg-cyan-500 text-gray-950 shadow flex items-center gap-1.5">
+                            <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                            <span>Harian</span>
+                        </button>
+                        <button id="tab-weekly" class="px-3.5 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5">
+                            <i data-lucide="calendar-range" class="w-3.5 h-3.5"></i>
+                            <span>Mingguan</span>
+                        </button>
+                        <button id="tab-monthly" class="px-3.5 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5">
+                            <i data-lucide="calendar-days" class="w-3.5 h-3.5"></i>
+                            <span>Bulanan</span>
+                        </button>
+                        <button id="tab-yearly" class="px-3.5 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5">
+                            <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+                            <span>Tahunan</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Contextual Filters & Export Button -->
+                <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+                    <div class="flex items-center flex-wrap gap-2.5">
+                        <!-- Dropdown Filter Bulan (Muncul di Tab Harian) -->
+                        <div id="filter-month-container" class="flex items-center bg-gray-800/80 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300">
+                            <i data-lucide="filter" class="w-3.5 h-3.5 mr-1.5 text-cyan-400"></i>
+                            <span class="mr-1.5 text-gray-400">Bulan:</span>
+                            <select id="filter-daily-month" class="bg-transparent text-white font-medium focus:outline-none cursor-pointer">
+                                <option value="" class="bg-gray-800">Semua Bulan</option>
+                            </select>
+                        </div>
+
+                        <!-- Dropdown Filter Tahun (Muncul di Tab Bulanan) -->
+                        <div id="filter-year-container" class="hidden flex items-center bg-gray-800/80 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300">
+                            <i data-lucide="filter" class="w-3.5 h-3.5 mr-1.5 text-cyan-400"></i>
+                            <span class="mr-1.5 text-gray-400">Tahun:</span>
+                            <select id="filter-monthly-year" class="bg-transparent text-white font-medium focus:outline-none cursor-pointer">
+                                <option value="" class="bg-gray-800">Semua Tahun</option>
+                            </select>
+                        </div>
+
+                        <span id="table-record-count" class="text-xs text-gray-400 font-mono">Memuat data...</span>
+                    </div>
+
+                    <!-- Export to CSV Button -->
+                    <button id="btn-export-traffic-csv" class="px-3.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition">
+                        <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+                        <span>Export ke CSV (Excel)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Table Container -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                    <thead>
+                        <tr class="bg-gray-850/80 text-gray-400 uppercase tracking-wider text-[11px] border-b border-gray-800">
+                            <th class="py-3 px-4 font-semibold">Periode / Tanggal</th>
+                            <th class="py-3 px-4 font-semibold text-right">Download (RX)</th>
+                            <th class="py-3 px-4 font-semibold text-right">Upload (TX)</th>
+                            <th class="py-3 px-4 font-semibold text-right">Total Trafik</th>
+                            <th class="py-3 px-4 font-semibold text-center">Status / Catatan</th>
+                        </tr>
+                    </thead>
+                    <tbody id="traffic-table-body" class="divide-y divide-gray-800/60 font-mono text-gray-300">
+                        <tr>
+                            <td colspan="5" class="py-8 text-center text-gray-500">
+                                <div class="flex flex-col items-center justify-center gap-2">
+                                    <i data-lucide="loader" class="w-6 h-6 animate-spin text-cyan-400"></i>
+                                    <span>Mengambil rekap data trafik...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot id="traffic-table-footer" class="bg-gray-850 font-mono font-bold text-white border-t-2 border-cyan-500/40">
+                        <!-- Populated dynamically via JS -->
+                    </tfoot>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-[#111827] border-t border-gray-800 py-4 px-4 text-center text-xs text-gray-500">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+            <span>Sistem Monitoring MikroTik & Akumulasi Bandwidth Mandiri</span>
+            <span class="text-gray-400">Zona Waktu: Asia/Jakarta (WIB) • Database SQLite Persisten</span>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/traffic.js?v=20260928_1"></script>
+</body>
+</html>

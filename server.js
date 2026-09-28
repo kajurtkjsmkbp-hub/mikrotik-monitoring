@@ -6,6 +6,40 @@ const path = require('path');
 const { Server } = require('socket.io');
 const MikrotikClient = require('./mikrotik');
 const voucherDb = require('./voucher-db');
+const trafficDb = require('./traffic-db');
+
+function parseUptimeToSeconds(uptimeStr) {
+    if (!uptimeStr || typeof uptimeStr !== 'string') return 0;
+    const str = uptimeStr.trim();
+    let totalSec = 0;
+    const weeks = str.match(/(\d+)\s*w/);
+    const days = str.match(/(\d+)\s*d/);
+    const hours = str.match(/(\d+)\s*h/);
+    const minutes = str.match(/(\d+)\s*m(?!s)/);
+    const seconds = str.match(/(\d+)\s*s/);
+    if (weeks || days || hours || minutes || seconds) {
+        if (weeks) totalSec += parseInt(weeks[1], 10) * 7 * 86400;
+        if (days) totalSec += parseInt(days[1], 10) * 86400;
+        if (hours) totalSec += parseInt(hours[1], 10) * 3600;
+        if (minutes) totalSec += parseInt(minutes[1], 10) * 60;
+        if (seconds) totalSec += parseInt(seconds[1], 10);
+        return totalSec;
+    }
+    const timeParts = str.split(':');
+    if (timeParts.length === 3) {
+        let d = 0;
+        let h = parseInt(timeParts[0], 10) || 0;
+        if (timeParts[0].includes('d')) {
+            const dSplit = timeParts[0].split('d');
+            d = parseInt(dSplit[0], 10) || 0;
+            h = parseInt(dSplit[1], 10) || 0;
+        }
+        const m = parseInt(timeParts[1], 10) || 0;
+        const s = parseInt(timeParts[2], 10) || 0;
+        return (d * 86400) + (h * 3600) + (m * 60) + s;
+    }
+    return 0;
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -638,23 +672,35 @@ async function runSmartPoll() {
                 } catch (e) {}
             }
 
-            // Tier 3 (Every 40 cycles = ~60 seconds): Interfaces list
-            if (cycleCount % 40 === 0 || cache.interfaces.length === 0) {
+            // Tier 3 (Every 2 cycles = ~3 seconds): Interfaces list & Traffic Accumulation
+            if (cycleCount % 2 === 0 || cache.interfaces.length === 0) {
                 try {
                     const ifaces = await client.query('/interface/print');
-                    cache.interfaces = (Array.isArray(ifaces) ? ifaces : [])
-                        .filter(i => i && i['name'] && i['name'] !== 'undefined' && !i['cpu-load'])
-                        .map(i => ({
-                            id: i['.id'],
-                            name: i['name'],
-                            type: i['type'] || 'interface',
-                            running: i['running'] === 'true',
-                            disabled: i['disabled'] === 'true',
-                            rxByte: parseInt(i['rx-byte'] || '0', 10),
-                            txByte: parseInt(i['tx-byte'] || '0', 10),
-                            rxFormatted: formatBytes(i['rx-byte']),
-                            txFormatted: formatBytes(i['tx-byte'])
-                        }));
+                    const validIfaces = (Array.isArray(ifaces) ? ifaces : [])
+                        .filter(i => i && i['name'] && i['name'] !== 'undefined' && !i['cpu-load']);
+
+                    cache.interfaces = validIfaces.map(i => ({
+                        id: i['.id'],
+                        name: i['name'],
+                        type: i['type'] || 'interface',
+                        running: i['running'] === 'true',
+                        disabled: i['disabled'] === 'true',
+                        rxByte: parseInt(i['rx-byte'] || '0', 10),
+                        txByte: parseInt(i['tx-byte'] || '0', 10),
+                        rxFormatted: formatBytes(i['rx-byte']),
+                        txFormatted: formatBytes(i['tx-byte'])
+                    }));
+
+                    // Record cumulative traffic bytes in SQLite with reboot protection
+                    const uptimeSec = parseUptimeToSeconds(cache.resource.uptime);
+                    for (const ifaceItem of cache.interfaces) {
+                        await trafficDb.recordInterfaceTraffic(ifaceItem.name, ifaceItem.rxByte, ifaceItem.txByte, uptimeSec);
+                    }
+
+                    // Emit live traffic update for active WAN interface
+                    const activeIface = routerConfig.wanInterface || 'ether1-internet';
+                    const liveTraffic = await trafficDb.getSummary(activeIface);
+                    io.emit('traffic_live_update', liveTraffic);
                 } catch (e) {}
             }
 
@@ -859,6 +905,100 @@ app.post('/api/vouchers/sync-router', async (req, res) => {
     }
 });
 
+// ==================== TRAFFIC ACCOUNTING & DATA USAGE API ====================
+app.get('/api/traffic/summary', async (req, res) => {
+    try {
+        const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
+        const summary = await trafficDb.getSummary(iface);
+        res.json(summary);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/traffic/daily', async (req, res) => {
+    try {
+        const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
+        const month = req.query.month || null;
+        const limit = parseInt(req.query.limit, 10) || 60;
+        const data = await trafficDb.getDailyHistory({ ifaceName: iface, month, limit });
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/traffic/weekly', async (req, res) => {
+    try {
+        const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
+        const limit = parseInt(req.query.limit, 10) || 20;
+        const data = await trafficDb.getWeeklyHistory({ ifaceName: iface, limit });
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/traffic/monthly', async (req, res) => {
+    try {
+        const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
+        const year = req.query.year || null;
+        const limit = parseInt(req.query.limit, 10) || 24;
+        const data = await trafficDb.getMonthlyHistory({ ifaceName: iface, year, limit });
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/traffic/yearly', async (req, res) => {
+    try {
+        const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
+        const data = await trafficDb.getYearlyHistory({ ifaceName: iface });
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/traffic/periods', async (req, res) => {
+    try {
+        const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
+        const periods = await trafficDb.getAvailablePeriods(iface);
+        res.json(periods);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/traffic/interfaces', async (req, res) => {
+    try {
+        const ifaces = await trafficDb.getInterfacesList();
+        const liveNames = (cache.interfaces || []).map(i => i.name);
+        const combined = Array.from(new Set([...ifaces, ...liveNames, routerConfig.wanInterface])).filter(Boolean);
+        res.json(combined);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/traffic/export', async (req, res) => {
+    try {
+        const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
+        const period = req.query.period || 'daily';
+        const month = req.query.month || null;
+        const year = req.query.year || null;
+        const csv = await trafficDb.exportCsv({ ifaceName: iface, period, month, year });
+
+        const filename = `pemakaian_trafik_${iface}_${period}_${Date.now()}.csv`;
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(csv);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // INSPECT USER ACTIVITY ENDPOINT WITH IP-TO-WEBSITE RESOLUTION
 app.get('/api/users/inspect', async (req, res) => {
     const { ip, user } = req.query;
@@ -1028,8 +1168,12 @@ app.post('/api/config', (req, res) => {
 
 io.on('connection', async (socket) => {
     let voucherSummary = null;
+    let trafficSummary = null;
     try {
         voucherSummary = await voucherDb.getSummary();
+    } catch (e) {}
+    try {
+        trafficSummary = await trafficDb.getSummary(routerConfig.wanInterface || 'ether1-internet');
     } catch (e) {}
 
     socket.emit('initial_state', {
@@ -1045,12 +1189,20 @@ io.on('connection', async (socket) => {
         interfaces: cache.interfaces,
         events: cache.userEvents,
         voucherSummary,
+        trafficSummary,
         config: routerConfig
     });
 
     socket.on('get_voucher_summary', async () => {
         try {
             socket.emit('voucher_summary_update', await voucherDb.getSummary());
+        } catch (e) {}
+    });
+
+    socket.on('get_traffic_summary', async (iface) => {
+        try {
+            const s = await trafficDb.getSummary(iface || routerConfig.wanInterface || 'ether1-internet');
+            socket.emit('traffic_live_update', s);
         } catch (e) {}
     });
 

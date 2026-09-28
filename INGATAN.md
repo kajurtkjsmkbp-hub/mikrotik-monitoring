@@ -249,5 +249,50 @@ Jika komputer/LXC server web dimatikan (misal malam hari atau listrik padam), se
   3. **Penyesuaian Cache Buster**: Script dimuat dengan `/app.js?v=20260928_2` dan `/voucher.js?v=20260928_5` agar browser client langsung memperbarui file script tanpa tertahan cache lawas.
 
 ---
-*Catatan Terakhir Diperbarui: 28 September 2026 - Penambahan Filter Dropdown Periode (Bulan/Tahun), Baris Total Rekap Tahunan, dan Transformasi Kartu ke-3 Dashboard Utama menjadi Omset Bulan Berjalan.*
+
+## 11. Modul Pemakaian Trafik & Akumulasi Bandwidth (Tahan Restart MikroTik)
+
+### A. Latar Belakang & Masalah Bawaan RouterOS
+- Pada router MikroTik, counter `rx-byte` dan `tx-byte` pada `/interface/print` disimpan murni di memori RAM router.
+- **Masalah Fatal Jika Tanpa Database Lokal**: Setiap kali MikroTik mengalami mati lampu, mati listrik, atau restart berkala, seluruh counter byte kembali menjadi **0**. Jika sistem hanya membaca nilai router saat ini, data pemakaian download & upload hari itu akan terhapus atau bernilai minus!
+
+### B. Arsitektur Solusi: Akumulasi Delta Persisten (Offline-First SQLite)
+1. **Engine Database (`traffic-db.js`)**:
+   - Beroperasi di database mandiri `data/traffic.sqlite` (aman dari git pull).
+   - Menggunakan mode SQLite WAL (`PRAGMA journal_mode = WAL`) untuk performa tinggi dan proteksi data korup.
+   - Tabel `traffic_meta`: Menyimpan `last_raw_rx`, `last_raw_tx`, `last_uptime_sec`, dan `last_seen_date` per interface.
+   - Tabel `traffic_daily`: Mencatat total download (`rx_bytes`), upload (`tx_bytes`), total volume (`total_bytes`), dan `reboot_count` per interface per tanggal (`YYYY-MM-DD` WIB).
+   - Tabel `traffic_hourly`: Mencatat pergerakan byte per jam (0..23) untuk mendeteksi jam puncak (*Peak Hour*) dan grafik 24 jam.
+2. **Algoritma Deteksi Reboot / Listrik Padam**:
+   - Pada setiap siklus pembacaan router (setiap ~3 detik):
+     - Jika `curr_rx >= last_rx` dan `curr_tx >= last_tx` serta uptime berlanjut:
+       `delta_rx = curr_rx - last_rx`
+       `delta_tx = curr_tx - last_tx`
+     - Jika `curr_rx < last_rx` ATAU `curr_tx < last_tx` ATAU `uptimeSec < lastUptimeSec - 10`:
+       **Reboot Terdeteksi!**
+       Byte sebelum restart telah terkunci aman di SQLite pada detik sebelumnya.
+       Trafik baru pasca-reboot adalah:
+       `delta_rx = curr_rx`
+       `delta_tx = curr_tx`
+       `reboot_count += 1`
+   - Delta ini langsung diakumulasikan (`rx_bytes = rx_bytes + delta_rx`) ke row tanggal hari ini.
+   - **Hasil**: Router restart berkali-kali pun, angka download dan upload harian tetap 100% akurat dan terus bertambah secara akumulatif.
+
+### C. Halaman Khusus `/traffic.html` & Navigasi
+1. **Tombol Navigasi**:
+   - Di `public/index.html`: Tombol `📊 Pemakaian Trafik` ditempatkan tepat di sebelah tombol `Menu Voucher` pada header.
+   - Di `public/voucher.html`: Tombol `Pemakaian Trafik` ditambahkan di header agar navigasi antara Dashboard Utama, Menu Voucher, dan Pemakaian Trafik terhubung 3 arah.
+2. **Fitur Lengkap Halaman `/traffic.html`**:
+   - **4 Hero KPI Cards**: Pemakaian Hari Ini (Download, Upload, Total, % vs Kemarin, Status Reboot), Minggu Ini (7 hari), Bulan Ini (dengan rata-rata harian), dan Tahun Ini.
+   - **Live Speed & Peak Hour**: Kecepatan realtime saat ini (Download/Upload bps) + Jam Tersibuk Hari Ini (*Peak Hour*) + Rasio Konsumsi (persentase DL vs UL).
+   - **Grafik Interaktif (Chart.js)**: Toggle mode 24 Jam Hari Ini (per jam), 30 Hari Terakhir, dan 12 Bulan Terakhir.
+   - **Buku Rekapitulasi 4 Periode**:
+     - `📅 Harian`: Tabel rincian per hari dengan filter dropdown bulan dan baris grand total footer.
+     - `📆 Mingguan`: Tabel rincian per minggu kalender ISO beserta rentang tanggal dan rata-rata per hari.
+     - `📊 Bulanan`: Tabel rincian per bulan dengan filter dropdown tahun.
+     - `📈 Tahunan`: Tabel rincian per tahun untuk buku besar jaringan.
+   - **Export CSV**: Mengunduh laporan resmi dalam format file spreadsheet Excel/CSV yang otomatis menyesuaikan periode aktif.
+
+---
+*Catatan Terakhir Diperbarui: 28 September 2026 - Rilis Penuh Modul Pemakaian Trafik & Akumulasi Bandwidth dengan Perlindungan Restart MikroTik.*
 
