@@ -910,6 +910,23 @@ app.get('/api/traffic/summary', async (req, res) => {
     try {
         const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
         const summary = await trafficDb.getSummary(iface);
+
+        // Gabungkan dengan omset voucher bulan ini untuk kalkulasi laba bersih
+        try {
+            const vSummary = await voucherDb.getSummary();
+            const voucherRevenue = vSummary?.thisMonth?.revenue || 0;
+            const ispCost = summary.isp?.monthlyCost || 0;
+            const netProfit = voucherRevenue - ispCost;
+
+            if (summary.isp) {
+                summary.isp.voucherRevenue = voucherRevenue;
+                summary.isp.voucherRevenueFormatted = 'Rp ' + Number(voucherRevenue).toLocaleString('id-ID');
+                summary.isp.netProfit = netProfit;
+                summary.isp.netProfitFormatted = (netProfit >= 0 ? '+Rp ' : '-Rp ') + Math.abs(netProfit).toLocaleString('id-ID');
+                summary.isp.profitMarginPct = ispCost > 0 ? Math.round((netProfit / ispCost) * 100) : 0;
+            }
+        } catch (ve) {}
+
         res.json(summary);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -996,6 +1013,144 @@ app.get('/api/traffic/export', async (req, res) => {
         res.send(csv);
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// TOP CONSUMERS (PENGGUNA TERBOROS BANDWIDTH)
+app.get('/api/traffic/top-users', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const activeUsers = cache.hotspotUsers || [];
+        const activeMap = new Map();
+        activeUsers.forEach(u => activeMap.set(u.user, u));
+
+        let userList = [];
+        try {
+            await safeQuery(async () => {
+                const client = await ensureClient();
+                const allUsers = await client.query('/ip/hotspot/user/print');
+                const validAll = (Array.isArray(allUsers) ? allUsers : []).filter(u => u && u.name && !u['cpu-load']);
+
+                userList = validAll.map(u => {
+                    const active = activeMap.get(u.name);
+                    const bytesIn = Math.max(parseInt(u['bytes-in'] || '0', 10), active ? active.bytesIn : 0);
+                    const bytesOut = Math.max(parseInt(u['bytes-out'] || '0', 10), active ? active.bytesOut : 0);
+                    const totalBytes = bytesIn + bytesOut;
+                    return {
+                        name: u.name,
+                        profile: u.profile || 'default',
+                        uptime: active ? active.uptime : (u.uptime || '0s'),
+                        ip: active ? active.address : '-',
+                        mac: active ? active.macAddress : '-',
+                        bytesIn,
+                        bytesOut,
+                        totalBytes,
+                        bytesInFormatted: formatBytes(bytesIn),
+                        bytesOutFormatted: formatBytes(bytesOut),
+                        totalBytesFormatted: formatBytes(totalBytes),
+                        isOnline: !!active
+                    };
+                })
+                .filter(u => u.totalBytes > 0)
+                .sort((a, b) => b.totalBytes - a.totalBytes)
+                .slice(0, limit);
+            });
+        } catch (e) {
+            // Fallback ke cache user aktif
+            userList = activeUsers.map(u => ({
+                name: u.user,
+                profile: 'hotspot',
+                uptime: u.uptime,
+                ip: u.address,
+                mac: u.macAddress,
+                bytesIn: u.bytesIn,
+                bytesOut: u.bytesOut,
+                totalBytes: u.bytesIn + u.bytesOut,
+                bytesInFormatted: u.bytesInFormatted,
+                bytesOutFormatted: u.bytesOutFormatted,
+                totalBytesFormatted: formatBytes(u.bytesIn + u.bytesOut),
+                isOnline: true
+            }))
+            .filter(u => u.totalBytes > 0)
+            .sort((a, b) => b.totalBytes - a.totalBytes)
+            .slice(0, limit);
+        }
+
+        res.json(userList);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PENGATURAN FUP & BIAYA ISP
+app.get('/api/traffic/isp-config', async (req, res) => {
+    try {
+        const config = await trafficDb.getIspSettings();
+        res.json(config);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/traffic/isp-config', async (req, res) => {
+    try {
+        const { fupGb, monthlyCost, ispName } = req.body;
+        const updated = await trafficDb.saveIspSettings({ fupGb, monthlyCost, ispName });
+        const summary = await trafficDb.getSummary(routerConfig.wanInterface || 'ether1-internet');
+        io.emit('traffic_live_update', summary);
+        res.json({ success: true, config: updated });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// BACKUP & RESTORE DATABASE
+app.get('/api/backup/download/:type', (req, res) => {
+    const type = req.params.type; // 'vouchers' | 'traffic'
+    const targetFile = type === 'traffic' ? 'traffic.sqlite' : 'vouchers.sqlite';
+    const filePath = path.join(__dirname, 'data', targetFile);
+
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: `File database ${targetFile} tidak ditemukan.` });
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const downloadName = `${type}_backup_${dateStr}.sqlite`;
+    res.download(filePath, downloadName);
+});
+
+const fs = require('fs');
+app.post('/api/backup/restore/:type', async (req, res) => {
+    try {
+        const type = req.params.type; // 'vouchers' | 'traffic'
+        const targetFile = type === 'traffic' ? 'traffic.sqlite' : 'vouchers.sqlite';
+        const filePath = path.join(__dirname, 'data', targetFile);
+        const { base64Data } = req.body;
+
+        if (!base64Data) {
+            return res.status(400).json({ error: 'File cadangan (base64) wajib dikirimkan.' });
+        }
+
+        const buffer = Buffer.from(base64Data, 'base64');
+        if (buffer.length < 100) {
+            return res.status(400).json({ error: 'Ukuran file tidak valid / korup.' });
+        }
+
+        // Buat backup salinan sebelum menimpa
+        if (fs.existsSync(filePath)) {
+            const backupBak = `${filePath}.bak_${Date.now()}`;
+            fs.copyFileSync(filePath, backupBak);
+        }
+
+        fs.writeFileSync(filePath, buffer);
+        console.log(`[Backup Restore] Database ${targetFile} berhasil dipulihkan dari web upload.`);
+
+        res.json({
+            success: true,
+            message: `Database ${type === 'traffic' ? 'Trafik' : 'Voucher'} berhasil dipulihkan!`
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

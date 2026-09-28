@@ -132,6 +132,17 @@ class TrafficDatabase {
         await this.runQuery(`CREATE INDEX IF NOT EXISTS idx_traffic_daily_iface_date ON traffic_daily(interface, date);`);
         await this.runQuery(`CREATE INDEX IF NOT EXISTS idx_traffic_hourly_iface_date ON traffic_hourly(interface, date, hour);`);
 
+        // Pengaturan Kuota ISP (FUP) & Biaya Langganan Bulanan
+        await this.runQuery(`
+            CREATE TABLE IF NOT EXISTS traffic_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        `);
+        await this.runQuery(`INSERT OR IGNORE INTO traffic_settings (key, value) VALUES ('isp_fup_gb', '1000')`);
+        await this.runQuery(`INSERT OR IGNORE INTO traffic_settings (key, value) VALUES ('isp_monthly_cost', '350000')`);
+        await this.runQuery(`INSERT OR IGNORE INTO traffic_settings (key, value) VALUES ('isp_name', 'Paket Internet ISP')`);
+
         // Muat metadata yang sudah ada ke memory cache
         try {
             const rows = await this.allQuery(`SELECT * FROM traffic_meta`);
@@ -404,6 +415,24 @@ class TrafficDatabase {
         const monthDays = Math.max(1, monthRow.days || 1);
         const dailyAvgMonthBytes = Math.round((monthRow.total || 0) / monthDays);
 
+        // Pengaturan & Kalkulasi FUP ISP serta Modal Bandwidth
+        const ispSettings = await this.getIspSettings();
+        const totalMonthBytes = monthRow.total || 0;
+        const totalMonthGb = totalMonthBytes / (1024 * 1024 * 1024);
+
+        let fupPercent = 0;
+        let fupRemainingGb = 0;
+        let fupStatus = 'safe'; // 'safe' | 'warning' | 'critical'
+
+        if (ispSettings.fupGb > 0) {
+            fupPercent = Math.min(100, Math.round((totalMonthGb / ispSettings.fupGb) * 100));
+            fupRemainingGb = Math.max(0, ispSettings.fupGb - totalMonthGb);
+            if (fupPercent >= 90) fupStatus = 'critical';
+            else if (fupPercent >= 75) fupStatus = 'warning';
+        }
+
+        const costPerGb = totalMonthGb > 0 ? Math.round(ispSettings.monthlyCost / totalMonthGb) : 0;
+
         return {
             interface: targetIface,
             date: todayStr,
@@ -460,8 +489,44 @@ class TrafficDatabase {
                 totalFormatted: formatBytes(yearRow.total || 0)
             },
             peakHour: peakHourInfo,
-            hourly24: hourly24
+            hourly24: hourly24,
+            isp: {
+                name: ispSettings.ispName,
+                fupGb: ispSettings.fupGb,
+                fupUsedGb: parseFloat(totalMonthGb.toFixed(2)),
+                fupRemainingGb: parseFloat(fupRemainingGb.toFixed(2)),
+                fupPercent: fupPercent,
+                fupStatus: fupStatus,
+                monthlyCost: ispSettings.monthlyCost,
+                monthlyCostFormatted: 'Rp ' + Number(ispSettings.monthlyCost).toLocaleString('id-ID'),
+                costPerGbFormatted: costPerGb > 0 ? ('Rp ' + Number(costPerGb).toLocaleString('id-ID') + ' / GB') : 'Rp 0 / GB'
+            }
         };
+    }
+
+    async getIspSettings() {
+        await this.initPromise;
+        const rows = await this.allQuery(`SELECT key, value FROM traffic_settings`);
+        const map = {};
+        rows.forEach(r => map[r.key] = r.value);
+        return {
+            fupGb: parseInt(map.isp_fup_gb || '1000', 10),
+            monthlyCost: parseInt(map.isp_monthly_cost || '350000', 10),
+            ispName: map.isp_name || 'Paket Internet ISP'
+        };
+    }
+
+    async saveIspSettings({ fupGb, monthlyCost, ispName }) {
+        await this.initPromise;
+        const fup = Math.max(0, parseInt(fupGb, 10) || 0);
+        const cost = Math.max(0, parseInt(monthlyCost, 10) || 0);
+        const name = (ispName || 'Paket Internet ISP').trim();
+
+        await this.runQuery(`INSERT INTO traffic_settings (key, value) VALUES ('isp_fup_gb', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(fup)]);
+        await this.runQuery(`INSERT INTO traffic_settings (key, value) VALUES ('isp_monthly_cost', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(cost)]);
+        await this.runQuery(`INSERT INTO traffic_settings (key, value) VALUES ('isp_name', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [name]);
+
+        return { fupGb: fup, monthlyCost: cost, ispName: name };
     }
 
     /**

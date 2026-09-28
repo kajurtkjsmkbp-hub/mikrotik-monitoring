@@ -293,6 +293,33 @@ Jika komputer/LXC server web dimatikan (misal malam hari atau listrik padam), se
      - `📈 Tahunan`: Tabel rincian per tahun untuk buku besar jaringan.
    - **Export CSV**: Mengunduh laporan resmi dalam format file spreadsheet Excel/CSV yang otomatis menyesuaikan periode aktif.
 
+### D. Fitur Ekstra yang Ditambahkan (28 September 2026)
+1. **🏆 Top 10 Pengguna Paling Boros Kuota (Top Consumers Leaderboard)**:
+   - Endpoint: `GET /api/traffic/top-users?limit=10`.
+   - Mengombinasikan data `/ip/hotspot/active` (live session bytes) dan `/ip/hotspot/user` (historical bytes) dari router MikroTik.
+   - Menampilkan peringkat 10 user teratas dengan badge medali (emas, perak, perunggu), status Online/Offline, durasi, Download RX, Upload TX, Total volume kuota, dan progress bar visual.
+2. **🎯 Indikator Batas Kuota FUP Bulanan (FUP Tracker)**:
+   - Menyimpan konfigurasi batas FUP bulanan di tabel `traffic_settings` SQLite (`isp_fup_gb`, `isp_name`).
+   - Progress bar dinamis dengan kalkulasi kuota terpakai, sisa kuota, dan persentase.
+   - Status badge otomatis:
+     - `Aman` (< 75%)
+     - `Waspada (75%+)` (75% - 89%)
+     - `Mendekati Batas` (>= 90%)
+   - Dilengkapi modal pengaturan interaktif `⚙️ Atur FUP & Biaya` langsung dari UI web.
+3. **💰 Analisa Margin Keuangan & Efisiensi Bandwidth**:
+   - Mengintegrasikan data biaya langganan bulanan ISP (`isp_monthly_cost`) dengan omset penjualan voucher bulan berjalan (`voucherSummary.thisMonth.revenue`).
+   - Menghitung **Beban Modal per GB**: `Biaya_ISP / Total_GB_Bulan_Ini`.
+   - Menghitung **Estimasi Laba Bersih Operasional**: `Omset_Voucher - Biaya_ISP`.
+   - Menghitung **ROI / Profit Margin**: `((Omset - Biaya) / Biaya) * 100%`.
+4. **💾 Cadangan & Pemulihan Database Langsung dari Web (Backup & Restore)**:
+   - Tombol `💾 Backup Database` di header `traffic.html` dan tombol `Backup DB` di `voucher.html`.
+   - **Download Backup**:
+     - `GET /api/backup/download/vouchers` -> Mengunduh `vouchers.sqlite` bertanggal.
+     - `GET /api/backup/download/traffic` -> Mengunduh `traffic.sqlite` bertanggal.
+   - **Restore Database**:
+     - `POST /api/backup/restore/:type` -> Menerima upload file `.sqlite` via Base64.
+     - Dilengkapi mekanisme keselamatan otomatis: server membuat salinan backup `.bak_<timestamp>` dari database yang sedang berjalan sebelum file ditimpa.
+
 ---
-*Catatan Terakhir Diperbarui: 28 September 2026 - Rilis Penuh Modul Pemakaian Trafik & Akumulasi Bandwidth dengan Perlindungan Restart MikroTik.*
+*Catatan Terakhir Diperbarui: 28 September 2026 - Rilis Penuh Fitur Top Consumers, FUP Tracker, Analisa Margin Keuntungan, dan Web Backup/Restore.*
 

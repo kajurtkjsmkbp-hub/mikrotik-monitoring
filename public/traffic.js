@@ -42,7 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const statYearTx = document.getElementById('stat-year-tx');
     const statYearBadge = document.getElementById('stat-year-badge');
 
-    // Live Widgets
+    // Live Speed & Peak Hour Widgets
     const liveRxSpeed = document.getElementById('live-rx-speed');
     const liveTxSpeed = document.getElementById('live-tx-speed');
     const liveIfaceName = document.getElementById('live-iface-name');
@@ -58,6 +58,45 @@ document.addEventListener('DOMContentLoaded', () => {
     const ratioRxPct = document.getElementById('ratio-rx-pct');
     const ratioTxPct = document.getElementById('ratio-tx-pct');
     const ratioDominance = document.getElementById('ratio-dominance');
+
+    // FUP ISP Tracker Elements (Poin 2)
+    const fupStatusBadge = document.getElementById('fup-status-badge');
+    const fupIspName = document.getElementById('fup-isp-name');
+    const fupUsedGb = document.getElementById('fup-used-gb');
+    const fupTotalGb = document.getElementById('fup-total-gb');
+    const fupRemainingGb = document.getElementById('fup-remaining-gb');
+    const fupPercentage = document.getElementById('fup-percentage');
+    const fupProgressBar = document.getElementById('fup-progress-bar');
+    const btnOpenIspSettings = document.getElementById('btn-open-isp-settings');
+
+    // Margin & Profit Calculator Elements (Poin 3)
+    const marginRoiBadge = document.getElementById('margin-roi-badge');
+    const marginIspCost = document.getElementById('margin-isp-cost');
+    const marginVoucherRevenue = document.getElementById('margin-voucher-revenue');
+    const marginCostPerGb = document.getElementById('margin-cost-per-gb');
+    const marginNetProfit = document.getElementById('margin-net-profit');
+
+    // Top Users Elements (Poin 1)
+    const topUsersTableBody = document.getElementById('top-users-table-body');
+    const btnRefreshTopUsers = document.getElementById('btn-refresh-top-users');
+
+    // Modal ISP Settings
+    const modalIspSettings = document.getElementById('modal-isp-settings');
+    const btnCloseIspModal = document.getElementById('btn-close-isp-modal');
+    const btnCancelIspModal = document.getElementById('btn-cancel-isp-modal');
+    const formIspSettings = document.getElementById('form-isp-settings');
+    const inputIspName = document.getElementById('input-isp-name');
+    const inputIspFup = document.getElementById('input-isp-fup');
+    const inputIspCost = document.getElementById('input-isp-cost');
+
+    // Modal Backup & Restore (Poin 5)
+    const btnOpenBackupModal = document.getElementById('btn-open-backup-modal');
+    const modalBackup = document.getElementById('modal-backup');
+    const btnCloseBackupModal = document.getElementById('btn-close-backup-modal');
+    const restoreTargetType = document.getElementById('restore-target-type');
+    const restoreFileInput = document.getElementById('restore-file-input');
+    const btnSubmitRestore = document.getElementById('btn-submit-restore');
+    const restoreStatusMsg = document.getElementById('restore-status-msg');
 
     // Chart Elements
     const btnChart24h = document.getElementById('btn-chart-24h');
@@ -127,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(updateClock, 1000);
 
     // ==========================================
-    // 1. UPDATE SUMMARY KPI & WIDGETS
+    // 1. UPDATE SUMMARY KPI, FUP & MARGIN WIDGETS
     // ==========================================
     function updateSummaryUI(summary) {
         if (!summary) return;
@@ -224,6 +263,54 @@ document.addEventListener('DOMContentLoaded', () => {
             ratioDominance.textContent = 'Belum Ada Trafik';
         }
 
+        // FUP ISP TRACKER (Poin 2)
+        if (summary.isp) {
+            const isp = summary.isp;
+            fupIspName.textContent = isp.name || 'Paket Internet ISP';
+            fupUsedGb.textContent = `${isp.fupUsedGb} GB`;
+            fupTotalGb.textContent = isp.fupGb > 0 ? `${Number(isp.fupGb).toLocaleString('id-ID')} GB` : 'Unlimited';
+            fupRemainingGb.textContent = isp.fupGb > 0 ? `${isp.fupRemainingGb} GB` : 'Tanpa Batas';
+            fupPercentage.textContent = `${isp.fupPercent}%`;
+
+            fupProgressBar.style.width = `${Math.min(100, isp.fupPercent)}%`;
+
+            if (isp.fupStatus === 'critical') {
+                fupStatusBadge.textContent = 'Mendekati Batas';
+                fupStatusBadge.className = 'text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-mono';
+                fupProgressBar.className = 'h-full rounded-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-500';
+            } else if (isp.fupStatus === 'warning') {
+                fupStatusBadge.textContent = 'Waspada (75%+)';
+                fupStatusBadge.className = 'text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono';
+                fupProgressBar.className = 'h-full rounded-full bg-gradient-to-r from-teal-500 to-amber-500 transition-all duration-500';
+            } else {
+                fupStatusBadge.textContent = 'Aman';
+                fupStatusBadge.className = 'text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono';
+                fupProgressBar.className = 'h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500';
+            }
+
+            // MARGIN & LABA BERSIH (Poin 3)
+            marginIspCost.textContent = isp.monthlyCostFormatted || 'Rp 0';
+            marginCostPerGb.textContent = isp.costPerGbFormatted || 'Rp 0 / GB';
+            marginVoucherRevenue.textContent = isp.voucherRevenueFormatted || 'Rp 0';
+
+            const profit = isp.netProfit || 0;
+            marginNetProfit.textContent = isp.netProfitFormatted || 'Rp 0';
+            if (profit >= 0) {
+                marginNetProfit.className = 'text-emerald-400 font-mono text-base block font-black';
+            } else {
+                marginNetProfit.className = 'text-rose-400 font-mono text-base block font-black';
+            }
+
+            const roi = isp.profitMarginPct || 0;
+            if (roi >= 0) {
+                marginRoiBadge.textContent = `+${roi}% Profit`;
+                marginRoiBadge.className = 'text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono';
+            } else {
+                marginRoiBadge.textContent = `${roi}% Defisit`;
+                marginRoiBadge.className = 'text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-mono';
+            }
+        }
+
         liveIfaceName.textContent = summary.interface;
 
         // Update chart jika mode 24 jam
@@ -235,7 +322,83 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // 2. CHART.JS VISUAL ENGINE
+    // 2. TOP CONSUMERS LEADERBOARD (Poin 1)
+    // ==========================================
+    async function loadTopUsers() {
+        topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-gray-500"><div class="flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-cyan-400"></i><span>Memuat top konsumen bandwidth...</span></div></td></tr>`;
+        if (window.lucide) lucide.createIcons();
+
+        try {
+            const res = await fetch('/api/traffic/top-users?limit=10');
+            const users = await res.json();
+
+            if (!Array.isArray(users) || users.length === 0) {
+                topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-gray-400">Belum ada aktivitas user hotspot yang tercatat hari ini.</td></tr>`;
+                return;
+            }
+
+            const maxVol = Math.max(...users.map(u => u.totalBytes), 1);
+            let html = '';
+
+            users.forEach((u, idx) => {
+                const rank = idx + 1;
+                let rankBadge = `<span class="w-6 h-6 rounded-full bg-gray-800 text-gray-400 font-bold text-xs flex items-center justify-center mx-auto">${rank}</span>`;
+                if (rank === 1) rankBadge = `<span class="w-6 h-6 rounded-full bg-amber-500 text-gray-950 font-black text-xs flex items-center justify-center mx-auto shadow-lg shadow-amber-500/30">1</span>`;
+                else if (rank === 2) rankBadge = `<span class="w-6 h-6 rounded-full bg-slate-300 text-gray-950 font-black text-xs flex items-center justify-center mx-auto">2</span>`;
+                else if (rank === 3) rankBadge = `<span class="w-6 h-6 rounded-full bg-amber-700 text-white font-black text-xs flex items-center justify-center mx-auto">3</span>`;
+
+                const onlineDot = u.isOnline
+                    ? `<span class="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-medium"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Online</span>`
+                    : `<span class="text-[11px] text-gray-500">Offline</span>`;
+
+                const pct = Math.min(100, Math.round((u.totalBytes / maxVol) * 100));
+
+                html += `
+                    <tr class="hover:bg-gray-800/40 transition">
+                        <td class="py-3 px-4 text-center">${rankBadge}</td>
+                        <td class="py-3 px-4">
+                            <div class="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
+                                <span>${u.name}</span>
+                                ${onlineDot}
+                            </div>
+                            <div class="text-[11px] text-gray-500 flex items-center gap-2">
+                                <span>IP: ${u.ip}</span>
+                                <span>•</span>
+                                <span>MAC: ${u.mac}</span>
+                            </div>
+                        </td>
+                        <td class="py-3 px-4">
+                            <span class="text-xs text-gray-300 font-medium">${u.profile}</span>
+                            <div class="text-[11px] text-gray-500">Aktif: ${u.uptime}</div>
+                        </td>
+                        <td class="py-3 px-4 text-right">
+                            <span class="text-cyan-400 font-bold">${u.bytesOutFormatted}</span>
+                        </td>
+                        <td class="py-3 px-4 text-right">
+                            <span class="text-purple-400 font-bold">${u.bytesInFormatted}</span>
+                        </td>
+                        <td class="py-3 px-4 text-right">
+                            <span class="text-white font-extrabold text-sm">${u.totalBytesFormatted}</span>
+                            <div class="w-20 ml-auto bg-gray-800 h-1.5 rounded-full overflow-hidden mt-1">
+                                <div class="bg-gradient-to-r from-amber-500 to-orange-400 h-full" style="width: ${pct}%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            topUsersTableBody.innerHTML = html;
+            if (window.lucide) lucide.createIcons();
+        } catch (e) {
+            console.error('Error loading top users:', e);
+            topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-400">Gagal memuat top konsumen: ${e.message}</td></tr>`;
+        }
+    }
+
+    btnRefreshTopUsers.addEventListener('click', loadTopUsers);
+
+    // ==========================================
+    // 3. CHART.JS VISUAL ENGINE
     // ==========================================
     function initChart() {
         const ctx = document.getElementById('trafficChart').getContext('2d');
@@ -399,7 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnChart12m.addEventListener('click', () => setChartMode('12m'));
 
     // ==========================================
-    // 3. TABLE RENDERING FOR 4 PERIODS
+    // 4. TABLE RENDERING FOR 4 PERIODS
     // ==========================================
 
     // A. Render Tabel Harian (Daily)
@@ -424,9 +587,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Max total for progress bars
             const maxVol = Math.max(...items.map(i => i.totalBytes), 1);
-
             let html = '';
             items.forEach(item => {
                 const pct = Math.min(100, Math.round((item.totalBytes / maxVol) * 100));
@@ -461,7 +622,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             tableBody.innerHTML = html;
 
-            // Grand Total Footer
             tableFooter.innerHTML = `
                 <tr class="text-xs sm:text-sm">
                     <td class="py-3.5 px-4 text-cyan-300 uppercase tracking-wider">
@@ -509,7 +669,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const maxVol = Math.max(...items.map(i => i.totalBytes), 1);
-
             let html = '';
             items.forEach(item => {
                 const pct = Math.min(100, Math.round((item.totalBytes / maxVol) * 100));
@@ -589,7 +748,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const maxVol = Math.max(...items.map(i => i.totalBytes), 1);
-
             let html = '';
             items.forEach(item => {
                 const pct = Math.min(100, Math.round((item.totalBytes / maxVol) * 100));
@@ -666,7 +824,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const maxVol = Math.max(...items.map(i => i.totalBytes), 1);
-
             let html = '';
             items.forEach(item => {
                 const pct = Math.min(100, Math.round((item.totalBytes / maxVol) * 100));
@@ -773,7 +930,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ==========================================
-    // 4. PERIODS & INTERFACES DROPDOWN POPULATOR
+    // 5. PERIODS & INTERFACES DROPDOWN POPULATOR
     // ==========================================
     async function loadPeriods() {
         try {
@@ -823,10 +980,11 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchSummary();
         setTab(currentTab);
         setChartMode(currentChartMode);
+        loadTopUsers();
     });
 
     // ==========================================
-    // 5. FETCH SUMMARY DATA
+    // 6. FETCH SUMMARY DATA
     // ==========================================
     async function fetchSummary() {
         try {
@@ -844,10 +1002,11 @@ document.addEventListener('DOMContentLoaded', () => {
     btnRefresh.addEventListener('click', () => {
         fetchSummary();
         setTab(currentTab);
+        loadTopUsers();
     });
 
     // ==========================================
-    // 6. CSV EXPORT HANDLER
+    // 7. CSV EXPORT HANDLER
     // ==========================================
     btnExportCsv.addEventListener('click', () => {
         let url = `/api/traffic/export?interface=${encodeURIComponent(currentInterface)}&period=${currentTab}`;
@@ -857,7 +1016,113 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ==========================================
-    // 7. REAL-TIME SOCKET.IO EVENT HANDLERS
+    // 8. MODAL ATUR FUP & BIAYA ISP (Poin 2 & 3)
+    // ==========================================
+    async function openIspSettingsModal() {
+        try {
+            const res = await fetch('/api/traffic/isp-config');
+            const config = await res.json();
+            inputIspName.value = config.ispName || 'Paket Internet ISP';
+            inputIspFup.value = config.fupGb || 1000;
+            inputIspCost.value = config.monthlyCost || 350000;
+            modalIspSettings.classList.remove('hidden');
+        } catch (e) {
+            alert('Gagal memuat pengaturan ISP: ' + e.message);
+        }
+    }
+
+    btnOpenIspSettings.addEventListener('click', openIspSettingsModal);
+    btnCloseIspModal.addEventListener('click', () => modalIspSettings.classList.add('hidden'));
+    btnCancelIspModal.addEventListener('click', () => modalIspSettings.classList.add('hidden'));
+
+    formIspSettings.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const payload = {
+                ispName: inputIspName.value.trim(),
+                fupGb: parseInt(inputIspFup.value, 10) || 0,
+                monthlyCost: parseInt(inputIspCost.value, 10) || 0
+            };
+
+            const res = await fetch('/api/traffic/isp-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json();
+            if (result.success) {
+                modalIspSettings.classList.add('hidden');
+                fetchSummary();
+            } else {
+                alert('Gagal menyimpan: ' + (result.error || 'Terjadi kesalahan'));
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    });
+
+    // ==========================================
+    // 9. MODAL BACKUP & RESTORE DATABASE (Poin 5)
+    // ==========================================
+    btnOpenBackupModal.addEventListener('click', () => {
+        restoreStatusMsg.classList.add('hidden');
+        restoreFileInput.value = '';
+        modalBackup.classList.remove('hidden');
+    });
+    btnCloseBackupModal.addEventListener('click', () => modalBackup.classList.add('hidden'));
+
+    btnSubmitRestore.addEventListener('click', async () => {
+        const file = restoreFileInput.files[0];
+        if (!file) {
+            alert('Silakan pilih file cadangan (.sqlite) terlebih dahulu.');
+            return;
+        }
+
+        const type = restoreTargetType.value; // 'vouchers' | 'traffic'
+        const typeName = type === 'traffic' ? 'Trafik' : 'Voucher';
+
+        if (!confirm(`PERINGATAN: Apakah Anda yakin ingin memulihkan database ${typeName} dari file "${file.name}"? File database yang ada saat ini akan otomatis dicadangkan sebagai backup .bak sebelum ditimpa.`)) {
+            return;
+        }
+
+        restoreStatusMsg.classList.remove('hidden');
+        restoreStatusMsg.className = 'text-center text-xs text-cyan-400 pt-1 flex items-center justify-center gap-1.5';
+        restoreStatusMsg.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i><span>Sedang memproses pemulihan database...</span>`;
+        if (window.lucide) lucide.createIcons();
+
+        const reader = new FileReader();
+        reader.onload = async () => {
+            try {
+                const base64 = reader.result.split(',')[1];
+                const res = await fetch(`/api/backup/restore/${type}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base64Data: base64 })
+                });
+                const result = await res.json();
+
+                if (result.success) {
+                    restoreStatusMsg.className = 'text-center text-xs text-emerald-400 pt-1 font-bold';
+                    restoreStatusMsg.textContent = `✓ ${result.message}`;
+                    setTimeout(() => {
+                        modalBackup.classList.add('hidden');
+                        fetchSummary();
+                        setTab(currentTab);
+                    }, 1500);
+                } else {
+                    restoreStatusMsg.className = 'text-center text-xs text-rose-400 pt-1 font-bold';
+                    restoreStatusMsg.textContent = `✕ Gagal: ${result.error || 'Terjadi kesalahan'}`;
+                }
+            } catch (err) {
+                restoreStatusMsg.className = 'text-center text-xs text-rose-400 pt-1 font-bold';
+                restoreStatusMsg.textContent = `✕ Error: ${err.message}`;
+            }
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // ==========================================
+    // 10. REAL-TIME SOCKET.IO EVENT HANDLERS
     // ==========================================
     socket.on('initial_state', (state) => {
         if (state.config && state.config.wanInterface) {
@@ -896,6 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!document.hidden) {
             fetchSummary();
             setTab(currentTab);
+            loadTopUsers();
         }
     });
 
@@ -905,5 +1171,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPeriods();
     fetchSummary();
     setTab('daily');
+    loadTopUsers();
     if (window.lucide) lucide.createIcons();
 });
