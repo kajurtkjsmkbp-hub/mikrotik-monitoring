@@ -6,6 +6,9 @@ let vState = {
     packageFilter: 'all',
     statusFilter: 'all',
     dateFilter: null,
+    monthFilter: null,
+    historyMonthFilter: null,
+    activeHistoryTab: 'daily',
     searchQuery: '',
     currentPage: 1,
     limit: 25,
@@ -28,6 +31,8 @@ const vel = {
     // Top Stats
     statTotalRevenueToday: document.getElementById('stat-total-revenue-today'),
     statTotalUsedToday: document.getElementById('stat-total-used-today'),
+    statCurrentMonthName: document.getElementById('stat-current-month-name'),
+    statTotalRevenueMonth: document.getElementById('stat-total-revenue-month'),
     statRevenue1kToday: document.getElementById('stat-revenue-1k-today'),
     statCount1kToday: document.getElementById('stat-count-1k-today'),
     statStock1k: document.getElementById('stat-stock-1k'),
@@ -43,9 +48,17 @@ const vel = {
     statStock3k: document.getElementById('stat-stock-3k'),
     cardStock3k: document.getElementById('card-stock-3k'),
 
-    // Daily History
+    // History Tabs & Tables
+    tabRekapHarian: document.getElementById('tab-rekap-harian'),
+    tabRekapBulanan: document.getElementById('tab-rekap-bulanan'),
+    containerDailyHistory: document.getElementById('container-daily-history'),
+    containerMonthlyHistory: document.getElementById('container-monthly-history'),
     dailyHistoryTbody: document.getElementById('daily-history-tbody'),
-    btnExportDailyCsv: document.getElementById('btn-export-daily-csv'),
+    monthlyHistoryTbody: document.getElementById('monthly-history-tbody'),
+    historyFilterBadge: document.getElementById('history-filter-badge'),
+    historyFilterMonthText: document.getElementById('history-filter-month-text'),
+    btnExportHistoryCsv: document.getElementById('btn-export-history-csv'),
+    exportHistoryLabel: document.getElementById('export-history-label'),
 
     // Vouchers Table & Filter
     filterStatus: document.getElementById('filter-status'),
@@ -80,10 +93,28 @@ const vel = {
     toastContainer: document.getElementById('voucher-toast-container')
 };
 
-// Web Audio Cash Register Chime on Voucher Activation
-function playVoucherSound() {
+// Web Audio Cash Register Chime on Voucher Activation (Singleton AudioContext)
+let sharedVoucherAudioCtx = null;
+function getSharedVoucherAudioContext() {
     try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!sharedVoucherAudioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) sharedVoucherAudioCtx = new AudioContextClass();
+        }
+        if (sharedVoucherAudioCtx && sharedVoucherAudioCtx.state === 'suspended') {
+            sharedVoucherAudioCtx.resume();
+        }
+        return sharedVoucherAudioCtx;
+    } catch (e) {
+        return null;
+    }
+}
+
+function playVoucherSound() {
+    if (document.hidden) return;
+    try {
+        const audioCtx = getSharedVoucherAudioContext();
+        if (!audioCtx) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'triangle';
@@ -100,6 +131,7 @@ function playVoucherSound() {
 
 // Toast helper
 function showToast(message, type = 'info') {
+    if (document.hidden) return;
     const toast = document.createElement('div');
     const colorClasses = {
         info: 'bg-gray-800 border-blue-500/50 text-blue-300',
@@ -118,10 +150,16 @@ function showToast(message, type = 'info') {
     }, 4000);
 }
 
-// Floating Live Alert on Activation
+// Floating Live Alert on Activation (max 3, skips if tab hidden)
 function showFloatingVoucherAlert(v) {
+    if (document.hidden) return;
+
+    while (vel.floatingAlerts && vel.floatingAlerts.children.length >= 3) {
+        vel.floatingAlerts.firstElementChild.remove();
+    }
+
     const alert = document.createElement('div');
-    alert.className = `p-3.5 rounded-2xl border border-amber-500/50 bg-gradient-to-r from-amber-950/90 to-gray-900 shadow-xl shadow-amber-500/10 backdrop-blur-md transition-all duration-400 transform translate-x-10 opacity-0 pointer-events-auto flex items-start gap-3`;
+    alert.className = `p-3.5 rounded-2xl border border-amber-500/50 bg-gradient-to-r from-amber-950/90 to-gray-900 shadow-xl shadow-amber-500/10 backdrop-blur-md transition-all duration-300 transform translate-x-10 opacity-0 pointer-events-auto flex items-start gap-3`;
     alert.innerHTML = `
         <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
             <i data-lucide="sparkles" class="w-4 h-4"></i>
@@ -143,11 +181,15 @@ function showFloatingVoucherAlert(v) {
     vel.floatingAlerts.appendChild(alert);
     lucide.createIcons({ root: alert });
 
-    setTimeout(() => alert.classList.remove('translate-x-10', 'opacity-0'), 20);
+    requestAnimationFrame(() => alert.classList.remove('translate-x-10', 'opacity-0'));
     setTimeout(() => {
-        alert.classList.add('opacity-0', 'translate-x-10');
-        setTimeout(() => alert.remove(), 400);
-    }, 6000);
+        if (alert.parentNode) {
+            alert.classList.add('opacity-0', 'translate-x-10');
+            setTimeout(() => {
+                if (alert.parentNode) alert.remove();
+            }, 300);
+        }
+    }, 4500);
 }
 
 // Live Clock
@@ -156,31 +198,50 @@ setInterval(() => {
     vel.clock.textContent = now.toLocaleTimeString('id-ID');
 }, 1000);
 
-// Number animation helper (lerp)
-function animateCurrency(el, startVal, endVal, duration = 600) {
+// Number animation helper (lerp with race-condition & negative clamp)
+function animateCurrency(el, startVal, endVal, duration = 500) {
     if (!el) return;
     startVal = Number(startVal) || 0;
     endVal = Number(endVal) || 0;
-    if (startVal === endVal) {
-        el.textContent = `Rp ${endVal.toLocaleString('id-ID')}`;
+
+    if (el._animId) {
+        cancelAnimationFrame(el._animId);
+        el._animId = null;
+    }
+
+    if (startVal === endVal || document.hidden || duration <= 0) {
+        el.textContent = `Rp ${Math.max(0, Math.round(endVal)).toLocaleString('id-ID')}`;
         return;
     }
+
     const startTime = performance.now();
     function step(currentTime) {
         const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        if (elapsed < 0) {
+            el.textContent = `Rp ${Math.max(0, Math.round(endVal)).toLocaleString('id-ID')}`;
+            el._animId = null;
+            return;
+        }
+
+        const progress = Math.max(0, Math.min(elapsed / duration, 1));
         const ease = 1 - Math.pow(1 - progress, 3);
-        const current = Math.round(startVal + (endVal - startVal) * ease);
+        let current = Math.round(startVal + (endVal - startVal) * ease);
+        if (endVal >= 0 && current < 0) current = 0;
+
         el.textContent = `Rp ${current.toLocaleString('id-ID')}`;
         if (progress < 1) {
-            requestAnimationFrame(step);
+            el._animId = requestAnimationFrame(step);
+        } else {
+            el._animId = null;
+            el.textContent = `Rp ${Math.max(0, Math.round(endVal)).toLocaleString('id-ID')}`;
         }
     }
-    requestAnimationFrame(step);
+    el._animId = requestAnimationFrame(step);
 }
 
 let lastRevenue = {
     total: 0,
+    month: 0,
     r1k: 0,
     r2k: 0,
     r3k: 0
@@ -196,11 +257,21 @@ function renderSummary(summary) {
 
     const t = summary.today || {};
     const stock = summary.stock || {};
+    const m = summary.thisMonth || {};
 
     // Total Today
     animateCurrency(vel.statTotalRevenueToday, lastRevenue.total, t.totalRevenue || 0);
     lastRevenue.total = t.totalRevenue || 0;
     vel.statTotalUsedToday.textContent = t.totalCount || 0;
+
+    // This Month
+    if (vel.statCurrentMonthName && m.monthName) {
+        vel.statCurrentMonthName.textContent = m.monthName;
+    }
+    if (vel.statTotalRevenueMonth) {
+        animateCurrency(vel.statTotalRevenueMonth, lastRevenue.month, m.totalRevenue || 0);
+        lastRevenue.month = m.totalRevenue || 0;
+    }
 
     // 1K
     animateCurrency(vel.statRevenue1kToday, lastRevenue.r1k, t.revenue1k || 0);
@@ -224,17 +295,63 @@ function renderSummary(summary) {
     vel.cardStock3k.textContent = stock['3k'] || 0;
 }
 
+// History Tab Switcher
+window.switchHistoryTab = function(tab) {
+    vState.activeHistoryTab = tab;
+    if (tab === 'daily') {
+        if (vel.tabRekapHarian) vel.tabRekapHarian.className = 'px-3 py-1.5 rounded-lg font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 shadow-sm';
+        if (vel.tabRekapBulanan) vel.tabRekapBulanan.className = 'px-3 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5';
+        if (vel.containerDailyHistory) vel.containerDailyHistory.classList.remove('hidden');
+        if (vel.containerMonthlyHistory) vel.containerMonthlyHistory.classList.add('hidden');
+        if (vel.exportHistoryLabel) vel.exportHistoryLabel.textContent = 'Export CSV Harian';
+        loadDailyHistory();
+    } else {
+        if (vel.tabRekapBulanan) vel.tabRekapBulanan.className = 'px-3 py-1.5 rounded-lg font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 shadow-sm';
+        if (vel.tabRekapHarian) vel.tabRekapHarian.className = 'px-3 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5';
+        if (vel.containerDailyHistory) vel.containerDailyHistory.classList.add('hidden');
+        if (vel.containerMonthlyHistory) vel.containerMonthlyHistory.classList.remove('hidden');
+        if (vel.exportHistoryLabel) vel.exportHistoryLabel.textContent = 'Export CSV Bulanan';
+        loadMonthlyHistory();
+    }
+    lucide.createIcons();
+};
+
+window.filterDailyByMonth = function(monthKey, monthLabel) {
+    vState.historyMonthFilter = monthKey;
+    if (vel.historyFilterBadge) {
+        vel.historyFilterBadge.classList.remove('hidden');
+        vel.historyFilterBadge.classList.add('inline-flex');
+    }
+    if (vel.historyFilterMonthText) {
+        vel.historyFilterMonthText.textContent = monthLabel || monthKey;
+    }
+    switchHistoryTab('daily');
+};
+
+window.clearMonthHistoryFilter = function() {
+    vState.historyMonthFilter = null;
+    if (vel.historyFilterBadge) {
+        vel.historyFilterBadge.classList.add('hidden');
+        vel.historyFilterBadge.classList.remove('inline-flex');
+    }
+    loadDailyHistory();
+};
+
 // Fetch & Render Daily History Table
 async function loadDailyHistory() {
     try {
-        const res = await fetch('/api/vouchers/daily-history?limit=40');
+        let url = '/api/vouchers/daily-history?limit=60';
+        if (vState.historyMonthFilter) {
+            url += `&month=${encodeURIComponent(vState.historyMonthFilter)}`;
+        }
+        const res = await fetch(url);
         const list = await res.json();
 
         if (!list || list.length === 0) {
             vel.dailyHistoryTbody.innerHTML = `
                 <tr>
                     <td colspan="7" class="text-center py-8 text-gray-500 font-sans">
-                        Belum ada riwayat aktivasi voucher tercatat. Saat ada pelanggan hotspot yang login, riwayat harian otomatis muncul di sini.
+                        Belum ada riwayat aktivasi voucher tercatat untuk periode ini.
                     </td>
                 </tr>
             `;
@@ -278,6 +395,64 @@ async function loadDailyHistory() {
         lucide.createIcons({ root: vel.dailyHistoryTbody });
     } catch (e) {
         console.error('Error loading daily history:', e);
+    }
+}
+
+// Fetch & Render Monthly History Table
+async function loadMonthlyHistory() {
+    try {
+        const res = await fetch('/api/vouchers/monthly-history?limit=24');
+        const list = await res.json();
+
+        if (!list || list.length === 0) {
+            vel.monthlyHistoryTbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="text-center py-8 text-gray-500 font-sans">
+                        Belum ada riwayat bulanan tercatat. Data omset akan terkumpul otomatis setiap bulan.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        vel.monthlyHistoryTbody.innerHTML = list.map(item => `
+            <tr class="hover:bg-gray-800/40 transition">
+                <td class="px-5 py-3.5 font-semibold text-white">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                        <span class="font-bold font-sans text-sm">${escapeHtml(item.monthLabel || item.monthKey)}</span>
+                    </div>
+                </td>
+                <td class="px-4 py-3.5 text-center">
+                    <span class="text-amber-300 font-bold font-mono">${item.count1k || 0} lbr</span>
+                    <span class="text-gray-500 text-[11px] block font-mono">Rp ${(item.revenue1k || 0).toLocaleString('id-ID')}</span>
+                </td>
+                <td class="px-4 py-3.5 text-center">
+                    <span class="text-cyan-300 font-bold font-mono">${item.count2k || 0} lbr</span>
+                    <span class="text-gray-500 text-[11px] block font-mono">Rp ${(item.revenue2k || 0).toLocaleString('id-ID')}</span>
+                </td>
+                <td class="px-4 py-3.5 text-center">
+                    <span class="text-emerald-300 font-bold font-mono">${item.count3k || 0} lbr</span>
+                    <span class="text-gray-500 text-[11px] block font-mono">Rp ${(item.revenue3k || 0).toLocaleString('id-ID')}</span>
+                </td>
+                <td class="px-4 py-3.5 text-center font-bold text-gray-200 font-mono">
+                    ${item.totalCount || 0} voucher
+                </td>
+                <td class="px-5 py-3.5 text-right font-mono text-amber-400 font-extrabold text-base">
+                    Rp ${(item.totalRevenue || 0).toLocaleString('id-ID')}
+                </td>
+                <td class="px-4 py-3.5 text-center">
+                    <button onclick="filterDailyByMonth('${item.monthKey}', '${escapeHtml(item.monthLabel)}')" class="px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-cyan-400 border border-gray-700 text-xs font-semibold transition flex items-center gap-1 mx-auto" title="Lihat rincian penjualan hari demi hari di bulan ini">
+                        <i data-lucide="list-filter" class="w-3.5 h-3.5"></i>
+                        <span>Lihat Hari</span>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        lucide.createIcons({ root: vel.monthlyHistoryTbody });
+    } catch (e) {
+        console.error('Error loading monthly history:', e);
     }
 }
 
@@ -743,33 +918,60 @@ window.clearStock = async function(pkgKey) {
     }
 };
 
-// Export Daily History to CSV
-vel.btnExportDailyCsv.addEventListener('click', async () => {
+// Export History (Daily or Monthly) to CSV
+window.exportHistoryCsv = async function() {
     try {
-        const res = await fetch('/api/vouchers/daily-history?limit=365');
-        const list = await res.json();
-        if (!list || list.length === 0) {
-            showToast('Belum ada data untuk diunduh', 'info');
-            return;
+        if (vState.activeHistoryTab === 'monthly') {
+            const res = await fetch('/api/vouchers/monthly-history?limit=120');
+            const list = await res.json();
+            if (!list || list.length === 0) {
+                showToast('Belum ada data bulanan untuk diunduh', 'info');
+                return;
+            }
+            let csv = 'Periode Bulan,Kode Bulan,Paket 1K (Lembar),Subtotal 1K,Paket 2K (Lembar),Subtotal 2K,Paket 3K (Lembar),Subtotal 3K,Total Voucher,Total Omset Rupiah\n';
+            list.forEach(row => {
+                csv += `"${row.monthLabel || row.monthKey}","${row.monthKey}",${row.count1k || 0},${row.revenue1k || 0},${row.count2k || 0},${row.revenue2k || 0},${row.count3k || 0},${row.revenue3k || 0},${row.totalCount || 0},${row.totalRevenue || 0}\n`;
+            });
+            const encodedUri = encodeURI('data:text/csv;charset=utf-8,' + csv);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', `rekap_omset_bulanan_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            showToast('Rekap omset bulanan berhasil diexport ke CSV', 'success');
+        } else {
+            let url = '/api/vouchers/daily-history?limit=365';
+            if (vState.historyMonthFilter) {
+                url += `&month=${encodeURIComponent(vState.historyMonthFilter)}`;
+            }
+            const res = await fetch(url);
+            const list = await res.json();
+            if (!list || list.length === 0) {
+                showToast('Belum ada data harian untuk diunduh', 'info');
+                return;
+            }
+            let csv = 'Tanggal,Hari,Voucher 1K (3 Jam),Subtotal 1K,Voucher 2K (10 Jam),Subtotal 2K,Voucher 3K (1 Hari),Subtotal 3K,Total Lembar,Total Omset Rupiah\n';
+            list.forEach(row => {
+                csv += `"${row.formattedDate || row.dateKey}","${row.dayName || ''}",${row.count1k || 0},${row.revenue1k || 0},${row.count2k || 0},${row.revenue2k || 0},${row.count3k || 0},${row.revenue3k || 0},${row.totalCount || 0},${row.totalRevenue || 0}\n`;
+            });
+            const encodedUri = encodeURI('data:text/csv;charset=utf-8,' + csv);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', `rekap_omset_harian_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            showToast('Rekap omset harian berhasil diexport ke CSV', 'success');
         }
-
-        let csv = 'Tanggal,Hari,Voucher 1K (3 Jam),Subtotal 1K,Voucher 2K (10 Jam),Subtotal 2K,Voucher 3K (1 Hari),Subtotal 3K,Total Lembar,Total Omset Rupiah\n';
-        list.forEach(row => {
-            csv += `"${row.formattedDate || row.dateKey}","${row.dayName || ''}",${row.count1k || 0},${row.revenue1k || 0},${row.count2k || 0},${row.revenue2k || 0},${row.count3k || 0},${row.revenue3k || 0},${row.totalCount || 0},${row.totalRevenue || 0}\n`;
-        });
-
-        const encodedUri = encodeURI('data:text/csv;charset=utf-8,' + csv);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `rekap_omset_voucher_${new Date().toISOString().slice(0, 10)}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        showToast('Rekap omset berhasil diexport ke CSV', 'success');
     } catch (e) {
         showToast(`Gagal export: ${e.message}`, 'error');
     }
-});
+};
+
+if (vel.btnExportHistoryCsv) {
+    vel.btnExportHistoryCsv.addEventListener('click', window.exportHistoryCsv);
+}
 
 // Real-time Socket.io Listeners
 socket.on('initial_state', (data) => {
@@ -780,7 +982,11 @@ socket.on('initial_state', (data) => {
 
 socket.on('voucher_summary_update', (summary) => {
     renderSummary(summary);
-    loadDailyHistory();
+    if (vState.activeHistoryTab === 'monthly') {
+        loadMonthlyHistory();
+    } else {
+        loadDailyHistory();
+    }
     loadVouchers();
 });
 

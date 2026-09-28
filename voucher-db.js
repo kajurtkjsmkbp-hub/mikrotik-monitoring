@@ -32,29 +32,71 @@ const PACKAGES = {
     }
 };
 
+process.env.TZ = process.env.TZ || 'Asia/Jakarta';
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Jakarta';
+
 const INDO_DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const INDO_MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
+function getJakartaParts(dateObj = new Date()) {
+    const d = (dateObj instanceof Date && !isNaN(dateObj.getTime())) ? dateObj : new Date();
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: APP_TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+    const parts = formatter.formatToParts(d);
+    const m = {};
+    parts.forEach(p => m[p.type] = p.value);
+
+    const dayFormatter = new Intl.DateTimeFormat('id-ID', {
+        timeZone: APP_TIMEZONE,
+        weekday: 'long'
+    });
+    const dayName = dayFormatter.format(d);
+
+    const monthFormatter = new Intl.DateTimeFormat('id-ID', {
+        timeZone: APP_TIMEZONE,
+        month: 'long'
+    });
+    const monthName = monthFormatter.format(d);
+
+    return {
+        year: m.year,
+        month: m.month,
+        day: m.day,
+        hour: m.hour,
+        minute: m.minute,
+        second: m.second,
+        dateKey: `${m.year}-${m.month}-${m.day}`,
+        monthKey: `${m.year}-${m.month}`,
+        timeStr: `${m.hour}:${m.minute}:${m.second}`,
+        dayName: dayName,
+        monthName: monthName,
+        indoMonthString: `${monthName} ${m.year}`,
+        indoDateString: `${dayName}, ${parseInt(m.day, 10)} ${monthName} ${m.year}`
+    };
+}
+
 function getIndoDateString(dateObj = new Date()) {
-    const dayName = INDO_DAYS[dateObj.getDay()];
-    const dateNum = dateObj.getDate();
-    const monthName = INDO_MONTHS[dateObj.getMonth()];
-    const year = dateObj.getFullYear();
-    return `${dayName}, ${dateNum} ${monthName} ${year}`;
+    return getJakartaParts(dateObj).indoDateString;
 }
 
 function getLocalDateKey(dateObj = new Date()) {
-    const y = dateObj.getFullYear();
-    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const d = String(dateObj.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return getJakartaParts(dateObj).dateKey;
 }
 
 function getLocalTimeString(dateObj = new Date()) {
-    const h = String(dateObj.getHours()).padStart(2, '0');
-    const m = String(dateObj.getMinutes()).padStart(2, '0');
-    const s = String(dateObj.getSeconds()).padStart(2, '0');
-    return `${h}:${m}:${s}`;
+    return getJakartaParts(dateObj).timeStr;
+}
+
+function getLocalDayName(dateObj = new Date()) {
+    return getJakartaParts(dateObj).dayName;
 }
 
 // Parse MikroTik uptime string (e.g. 1w2d3h4m5s, 3h20m, 45s) into milliseconds
@@ -140,7 +182,30 @@ class VoucherSQLiteDatabase {
             this.db.run(`CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(activated_date)`);
             this.db.run(`CREATE INDEX IF NOT EXISTS idx_vouchers_pkg ON vouchers(package_key)`);
 
-            console.log(`[SQLite VoucherDB] Connected and table verified at: ${DB_PATH}`);
+            // Auto-align existing records to Jakarta timezone if activated_at is present
+            this.db.all(`SELECT id, activated_at, activated_date, activated_time FROM vouchers WHERE status = 'used' AND activated_at IS NOT NULL`, [], (err, rows) => {
+                if (!err && Array.isArray(rows) && rows.length > 0) {
+                    rows.forEach(r => {
+                        try {
+                            const d = new Date(r.activated_at);
+                            if (!isNaN(d.getTime())) {
+                                const parts = getJakartaParts(d);
+                                if (parts.timeStr !== r.activated_time || parts.dateKey !== r.activated_date) {
+                                    this.db.run(`
+                                        UPDATE vouchers SET
+                                            activated_date = ?,
+                                            activated_time = ?,
+                                            activated_day = ?
+                                        WHERE id = ?
+                                    `, [parts.dateKey, parts.timeStr, parts.dayName, r.id]);
+                                }
+                            }
+                        } catch (e) {}
+                    });
+                }
+            });
+
+            console.log(`[SQLite VoucherDB] Connected and table verified at: ${DB_PATH} (Timezone: ${APP_TIMEZONE})`);
         });
     }
 
@@ -275,7 +340,7 @@ class VoucherSQLiteDatabase {
         const now = new Date();
         const localDate = getLocalDateKey(now);
         const localTime = getLocalTimeString(now);
-        const dayName = INDO_DAYS[now.getDay()];
+        const dayName = getLocalDayName(now);
 
         const activeUsersMap = new Map();
         for (const u of activeHotspotUsers) {
@@ -353,7 +418,7 @@ class VoucherSQLiteDatabase {
         const now = new Date();
         const localDate = getLocalDateKey(now);
         const localTime = getLocalTimeString(now);
-        const dayName = INDO_DAYS[now.getDay()];
+        const dayName = getLocalDayName(now);
 
         for (const rUser of routerHotspotUsers) {
             const name = (rUser.name || '').toLowerCase().trim();
@@ -370,7 +435,7 @@ class VoucherSQLiteDatabase {
                     const actIso = activationDateObj.toISOString();
                     const actDate = getLocalDateKey(activationDateObj);
                     const actTime = getLocalTimeString(activationDateObj);
-                    const actDay = INDO_DAYS[activationDateObj.getDay()];
+                    const actDay = getLocalDayName(activationDateObj);
 
                     await this.run(`
                         UPDATE vouchers SET
@@ -463,7 +528,48 @@ class VoucherSQLiteDatabase {
             summary.today.totalRevenue += rev;
         });
 
-        // 3. All-time Used
+        // 3. This Month's Used
+        const parts = getJakartaParts(new Date());
+        const currentMonthKey = parts.monthKey;
+        summary.thisMonth = {
+            monthKey: currentMonthKey,
+            monthName: parts.monthName,
+            monthLabel: parts.indoMonthString,
+            count1k: 0,
+            revenue1k: 0,
+            count2k: 0,
+            revenue2k: 0,
+            count3k: 0,
+            revenue3k: 0,
+            totalCount: 0,
+            totalRevenue: 0
+        };
+
+        const monthRows = await this.all(`
+            SELECT package_key, COUNT(*) as cnt, SUM(price) as rev 
+            FROM vouchers 
+            WHERE status = 'used' AND substr(activated_date, 1, 7) = ?
+            GROUP BY package_key
+        `, [currentMonthKey]);
+
+        monthRows.forEach(r => {
+            const count = r.cnt || 0;
+            const rev = r.rev || 0;
+            if (r.package_key === '1k') {
+                summary.thisMonth.count1k = count;
+                summary.thisMonth.revenue1k = rev;
+            } else if (r.package_key === '2k') {
+                summary.thisMonth.count2k = count;
+                summary.thisMonth.revenue2k = rev;
+            } else if (r.package_key === '3k') {
+                summary.thisMonth.count3k = count;
+                summary.thisMonth.revenue3k = rev;
+            }
+            summary.thisMonth.totalCount += count;
+            summary.thisMonth.totalRevenue += rev;
+        });
+
+        // 4. All-time Used
         const allTimeRows = await this.all(`
             SELECT package_key, COUNT(*) as cnt, SUM(price) as rev 
             FROM vouchers 
@@ -492,8 +598,17 @@ class VoucherSQLiteDatabase {
     }
 
     // Get Daily Sales History (Rekap Omset Harian)
-    async getDailyHistory(limit = 60) {
-        const rows = await this.all(`
+    async getDailyHistory(options = 60) {
+        let limit = 60;
+        let month = null;
+        if (typeof options === 'object' && options !== null) {
+            limit = parseInt(options.limit, 10) || 60;
+            month = options.month || null;
+        } else {
+            limit = parseInt(options, 10) || 60;
+        }
+
+        let sql = `
             SELECT 
                 activated_date as dateKey,
                 activated_day as dayName,
@@ -507,10 +622,20 @@ class VoucherSQLiteDatabase {
                 SUM(price) as totalRevenue
             FROM vouchers
             WHERE status = 'used' AND activated_date IS NOT NULL
+        `;
+        const params = [];
+        if (month) {
+            sql += ` AND substr(activated_date, 1, 7) = ? `;
+            params.push(month);
+        }
+        sql += `
             GROUP BY activated_date
             ORDER BY activated_date DESC
             LIMIT ?
-        `, [limit]);
+        `;
+        params.push(limit);
+
+        const rows = await this.all(sql, params);
 
         return rows.map(r => {
             let formattedDate = r.dateKey;
@@ -526,8 +651,49 @@ class VoucherSQLiteDatabase {
         });
     }
 
+    // Get Monthly Sales History (Rekap Omset Bulanan)
+    async getMonthlyHistory(limit = 24) {
+        const rows = await this.all(`
+            SELECT 
+                substr(activated_date, 1, 7) as monthKey,
+                SUM(CASE WHEN package_key = '1k' THEN 1 ELSE 0 END) as count1k,
+                SUM(CASE WHEN package_key = '1k' THEN price ELSE 0 END) as revenue1k,
+                SUM(CASE WHEN package_key = '2k' THEN 1 ELSE 0 END) as count2k,
+                SUM(CASE WHEN package_key = '2k' THEN price ELSE 0 END) as revenue2k,
+                SUM(CASE WHEN package_key = '3k' THEN 1 ELSE 0 END) as count3k,
+                SUM(CASE WHEN package_key = '3k' THEN price ELSE 0 END) as revenue3k,
+                COUNT(*) as totalCount,
+                SUM(price) as totalRevenue
+            FROM vouchers
+            WHERE status = 'used' AND activated_date IS NOT NULL
+            GROUP BY substr(activated_date, 1, 7)
+            ORDER BY monthKey DESC
+            LIMIT ?
+        `, [limit]);
+
+        return rows.map(r => {
+            let monthLabel = r.monthKey;
+            let monthName = '';
+            let year = '';
+            try {
+                const [y, m] = r.monthKey.split('-').map(Number);
+                const mIdx = m - 1;
+                monthName = INDO_MONTHS[mIdx] || `Bulan ${m}`;
+                year = String(y);
+                monthLabel = `${monthName} ${year}`;
+            } catch (e) {}
+
+            return {
+                ...r,
+                monthName,
+                year,
+                monthLabel
+            };
+        });
+    }
+
     // Get filtered and paginated vouchers
-    async getVouchers({ packageFilter, statusFilter, dateFilter, search, page = 1, limit = 50 }) {
+    async getVouchers({ packageFilter, statusFilter, dateFilter, monthFilter, search, page = 1, limit = 50 }) {
         let whereClauses = [];
         let params = [];
 
@@ -544,6 +710,11 @@ class VoucherSQLiteDatabase {
         if (dateFilter) {
             whereClauses.push(`activated_date = ?`);
             params.push(dateFilter);
+        }
+
+        if (monthFilter) {
+            whereClauses.push(`substr(activated_date, 1, 7) = ?`);
+            params.push(monthFilter);
         }
 
         if (search) {

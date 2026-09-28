@@ -132,6 +132,7 @@ class MikrotikClient {
 
     async readCommandResult(timeoutMs = 10000) {
         const results = [];
+        let trapError = null;
         while (true) {
             const sentence = await this.readSentence(timeoutMs);
             if (!sentence || sentence.length === 0) continue;
@@ -161,11 +162,15 @@ class MikrotikClient {
                         msg = sentence[i].slice(9);
                     }
                 }
-                throw new Error(msg);
+                trapError = new Error(msg);
+                // Continue reading until !done to fully drain the sentence from socket buffer
             } else if (replyType === '!fatal') {
                 this.disconnect();
                 throw new Error('RouterOS Fatal Error: ' + sentence.join(' '));
             }
+        }
+        if (trapError) {
+            throw trapError;
         }
         return results;
     }
@@ -255,8 +260,13 @@ class MikrotikClient {
         for (const p of params) {
             words.push(p);
         }
-        this.sendSentence(words);
-        return await this.readCommandResult();
+        try {
+            this.sendSentence(words);
+            return await this.readCommandResult();
+        } catch (err) {
+            this.disconnect();
+            throw err;
+        }
     }
 
     disconnect() {

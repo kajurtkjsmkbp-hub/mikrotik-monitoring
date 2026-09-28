@@ -1,3 +1,4 @@
+process.env.TZ = process.env.TZ || 'Asia/Jakarta';
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -418,7 +419,7 @@ async function runSmartPoll() {
             const client = await ensureClient();
             cycleCount++;
             const now = new Date();
-            const timeStr = now.toLocaleTimeString('id-ID', { hour12: false });
+            const timeStr = now.toLocaleTimeString('id-ID', { hour12: false, timeZone: process.env.APP_TIMEZONE || 'Asia/Jakarta' });
 
             // 1. System Resource
             const res = await client.query('/system/resource/print');
@@ -452,7 +453,7 @@ async function runSmartPoll() {
             }
 
             // 3. Traffic Monitor
-            if (routerConfig.wanInterface) {
+            if (routerConfig.wanInterface && routerConfig.wanInterface !== 'undefined') {
                 try {
                     const traf = await client.query('/interface/monitor-traffic', [
                         `=interface=${routerConfig.wanInterface}`,
@@ -475,7 +476,10 @@ async function runSmartPoll() {
             // 4. Hotspot Active Users & Login/Logout Detection
             try {
                 const hotspot = await client.query('/ip/hotspot/active/print');
-                const currentUsers = hotspot.map(u => ({
+                const validHotspot = (Array.isArray(hotspot) ? hotspot : []).filter(u => {
+                    return u && (u['user'] || u['address'] || u['mac-address']) && !u['cpu-load'] && !u['total-memory'];
+                });
+                const currentUsers = validHotspot.map(u => ({
                     id: u['.id'],
                     user: u['user'] || 'Unknown',
                     address: u['address'] || '-',
@@ -638,17 +642,19 @@ async function runSmartPoll() {
             if (cycleCount % 40 === 0 || cache.interfaces.length === 0) {
                 try {
                     const ifaces = await client.query('/interface/print');
-                    cache.interfaces = ifaces.map(i => ({
-                        id: i['.id'],
-                        name: i['name'],
-                        type: i['type'],
-                        running: i['running'] === 'true',
-                        disabled: i['disabled'] === 'true',
-                        rxByte: parseInt(i['rx-byte'] || '0', 10),
-                        txByte: parseInt(i['tx-byte'] || '0', 10),
-                        rxFormatted: formatBytes(i['rx-byte']),
-                        txFormatted: formatBytes(i['tx-byte'])
-                    }));
+                    cache.interfaces = (Array.isArray(ifaces) ? ifaces : [])
+                        .filter(i => i && i['name'] && i['name'] !== 'undefined' && !i['cpu-load'])
+                        .map(i => ({
+                            id: i['.id'],
+                            name: i['name'],
+                            type: i['type'] || 'interface',
+                            running: i['running'] === 'true',
+                            disabled: i['disabled'] === 'true',
+                            rxByte: parseInt(i['rx-byte'] || '0', 10),
+                            txByte: parseInt(i['tx-byte'] || '0', 10),
+                            rxFormatted: formatBytes(i['rx-byte']),
+                            txFormatted: formatBytes(i['tx-byte'])
+                        }));
                 } catch (e) {}
             }
 
@@ -747,7 +753,18 @@ app.get('/api/vouchers/summary', async (req, res) => {
 app.get('/api/vouchers/daily-history', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit, 10) || 60;
-        const history = await voucherDb.getDailyHistory(limit);
+        const month = req.query.month || null;
+        const history = await voucherDb.getDailyHistory({ limit, month });
+        res.json(history);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/vouchers/monthly-history', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit, 10) || 24;
+        const history = await voucherDb.getMonthlyHistory(limit);
         res.json(history);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -756,11 +773,12 @@ app.get('/api/vouchers/daily-history', async (req, res) => {
 
 app.get('/api/vouchers', async (req, res) => {
     try {
-        const { packageFilter, statusFilter, dateFilter, search, page, limit } = req.query;
+        const { packageFilter, statusFilter, dateFilter, monthFilter, search, page, limit } = req.query;
         const vouchers = await voucherDb.getVouchers({
             packageFilter,
             statusFilter,
             dateFilter,
+            monthFilter,
             search,
             page: parseInt(page, 10) || 1,
             limit: parseInt(limit, 10) || 50
@@ -1027,7 +1045,7 @@ io.on('connection', async (socket) => {
     });
 
     socket.on('change_interface', (iface) => {
-        if (iface) {
+        if (iface && iface !== 'undefined') {
             routerConfig.wanInterface = iface;
             cache.traffic.interface = iface;
         }

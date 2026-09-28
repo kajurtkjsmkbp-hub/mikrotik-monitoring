@@ -139,9 +139,10 @@ Jika komputer/LXC server web dimatikan (misal malam hari atau listrik padam), se
 ---
 
 ## 9. Pembukuan & Rekap Omset Harian
-- **Periode Harian**: Pukul **00:00:00 s/d 23:59:59** waktu lokal.
+- **Zona Waktu Standar**: Terkunci permanen ke **Waktu Indonesia Barat (`Asia/Jakarta`, WIB / GMT+7)** secara otomatis melalui `Intl.DateTimeFormat` dan `process.env.APP_TIMEZONE`, sehingga tidak akan terpengaruh jika server Linux/Proxmox diset ke UTC.
+- **Periode Harian**: Pukul **00:00:00 s/d 23:59:59 WIB**.
 - **Tabel Rekap Buku Kas** di `/voucher.html`:
-  - Menampilkan riwayat per hari (contoh: *Sabtu, 26 September 2026*).
+  - Menampilkan riwayat per hari (contoh: *Senin, 28 September 2026*).
   - Kolom: Hari/Tanggal, Voucher 1K (Jumlah & Rp), Voucher 2K (Jumlah & Rp), Voucher 3K (Jumlah & Rp), Total Lembar, Total Omset (Rp).
   - Tombol **Rincian**: Klik untuk memfilter daftar voucher yang aktif pada tanggal tersebut.
   - Tombol **Export ke CSV**: Untuk mengunduh laporan pembukuan ke format file Excel/Spreadsheet.
@@ -173,5 +174,50 @@ Jika komputer/LXC server web dimatikan (misal malam hari atau listrik padam), se
   cd /opt/mikrotik-monitoring && git pull && npm install --omit=dev && pm2 restart mikrotik-dashboard
   ```
 
+### C. Optimasi Tab Background & Anti-Freeze / Anti-Negative Lerp Bug
+- **Masalah Lama**: Jika tab browser ditinggal/berpindah tab selama beberapa menit, kembali ke tab MikroTik sering menyebabkan browser freeze/hang dan angka KPI menjadi negatif (misal `-204`, `-184`).
+- **Penyebab**:
+  1. `requestAnimationFrame` dibekukan oleh browser saat tab di background, mengakibatkan time drift negatif dan race condition kurva kubik pada `animateNumber()`.
+  2. `setTimeout` throttled di background sehingga floating alerts user login/logout menumpuk puluhan di DOM dan Lucide memindai satu halaman penuh setiap ada event baru.
+  3. Instansiasi `new AudioContext()` berulang tanpa pernah ditutup menyebabkan thread audio browser macet.
+- **Solusi Permanen yang Diterapkan**:
+  1. Integrasi Page Visibility API (`document.hidden` & event `visibilitychange`): saat tab di background, pembaruan angka dilakukan langsung (tanpa RAF), rendering canvas chart dihentikan sementara, dan saat tab aktif kembali, state langsung dipulihkan secara instan.
+  2. Pembatasan Floating Alert: maksimal 3 notifikasi mengambang di layar (kartu lama otomatis dibersihkan), pemanggilan ikon dibatasi hanya pada elemen alert terkait (`lucide.createIcons({ root: alert })`), dan tidak memunculkan notifikasi DOM saat tab tersembunyi.
+  3. Proteksi Angka Negatif: pembatalan animasi aktif sebelumnya via `cancelAnimationFrame` serta clamping `Math.max(0, ...)` sehingga angka tidak akan pernah minus.
+  4. Singleton AudioContext: audio lonceng menggunakan satu instans audio context bersama yang di-resume secara aman.
+
+### D. Solusi Bug Desinkronisasi Protokol RouterOS API (!trap & !done Offset Bug)
+- **Gejala Masalah**:
+  1. Tampilan CPU 0%, RAM 0 MB / 0 MB (0%), Uptime 0 Detik, ROS v-, dan Board -.
+  2. Tabel User Hotspot tiba-tiba muncul 1 user dengan nama "Unknown", IP "-", MAC "-", dan Durasi "-".
+  3. Interface berubah menjadi "undefined (undefined)" dan grafik bandwidth flat 0 bps dengan sumbu Y minus (-200 K s/d -1000 K).
+- **Akar Penyebab Utama**:
+  Pada protokol API MikroTik port 8728, setiap respons command (baik sukses maupun error `!trap`) **selalu diakhiri dengan baris `!done`**.
+  Sebelumnya, saat router mengembalikan pesan error `!trap` (misalnya saat memonitor interface yang belum ada atau parameter salah), `mikrotik.js` langsung melempar `throw new Error(...)` tanpa menghabiskan paket `!done` yang menyusul di TCP buffer.
+  Akibatnya, seluruh antrean query berikutnya tergeser 1-2 respons (desinkronisasi pipeline):
+  - Query resource terbaca `!done` -> kembali kosong (CPU 0%, RAM 0 MB).
+  - Query hotspot terbaca respons resource -> user kosong sehingga dinamai "Unknown".
+  - Query interface terbaca respons hotspot -> nama interface undefined.
+- **Solusi Permanen yang Diterapkan**:
+  1. Di `mikrotik.js`: saat menerima `!trap`, parser tetap membaca hingga baris penutup `!done` tiba, baru kemudian melemparkan error sehingga buffer TCP tetap sinkron 100%.
+  2. Proteksi auto-disconnect di `client.query()`: jika terjadi timeout atau error query, koneksi socket langsung di-reset otomatis agar tidak ada sisa byte yang mencemari query berikutnya.
+  3. Filter data sanitasi di `server.js`: membuang entri rusak/desinkronisasi pada `hotspotUsers` dan `interfaces`.
+  4. Skala Chart.js di `public/app.js`: menambahkan `min: 0, beginAtZero: true` sehingga grafik traffic tidak akan pernah menampilkan angka minus.
+
+### E. Fitur Rekap Omset Bulanan & Tab Switcher Buku Kas (28 September 2026)
+- **Kebutuhan**: Pemilik usaha membutuhkan rekapan penghasilan per bulan (contoh: *Bulan September 2026*, *Oktober 2026*, dst.) untuk pembukuan tanpa merusak keindahan UI dark mode.
+- **Implementasi Backend (`voucher-db.js` & `server.js`)**:
+  1. Helper `getJakartaParts()` diperluas untuk menghasilkan `monthKey` (`YYYY-MM`) dan `indoMonthString` (`NamaBulan YYYY`).
+  2. `getSummary()` diperluas dengan field `thisMonth` (menghitung total nominal omset dan lembar voucher di bulan berjalan).
+  3. Method baru `getMonthlyHistory(limit = 24)` mengelompokkan voucher terpakai (`status = 'used'`) berdasarkan `substr(activated_date, 1, 7)` untuk menampilkan rincian paket 1K, 2K, 3K, total voucher, dan total omset per bulan.
+  4. Method `getDailyHistory()` diperluas dengan dukungan parameter `{ month: 'YYYY-MM' }` untuk memfilter rincian hari pada bulan tertentu.
+  5. Route `/api/vouchers/monthly-history` dan update route `/api/vouchers/daily-history?month=...`.
+- **Implementasi Frontend (`public/voucher.html` & `public/voucher.js`)**:
+  1. **Sub-stat Elegan di Kartu Utama**: Baris pemisah halus di dalam kartu "Total Omset Hari Ini" yang menampilkan `Bulan Ini (September 2026): Rp X` secara real-time.
+  2. **Pill Tab Switcher**: Di header Riwayat Buku Kas terdapat tombol toggle `[ 📅 Rekap Harian ]` dan `[ 📆 Rekap Bulanan ]`.
+  3. **Tabel Rekap Bulanan**: Kolom Bulan & Tahun, Paket 1K, Paket 2K, Paket 3K, Total Lembar, Total Omset Bersih, dan Tombol "Lihat Hari".
+  4. **Filter Antar-Bulan**: Menekan tombol "Lihat Hari" pada salah satu bulan akan langsung memfilter tabel harian hanya untuk bulan tersebut, disertai badge filter dan tombol reset silang (✕).
+  5. **Export CSV Bulanan & Harian**: Tombol "Export CSV" otomatis menyesuaikan data yang sedang aktif (rekap harian vs rekap bulanan).
+
 ---
-*Catatan Terakhir Diperbarui: 27 September 2026 - Dokumentasi lengkap dan diverifikasi pada repositori GitHub & environment Proxmox LXC.*
+*Catatan Terakhir Diperbarui: 28 September 2026 - Penambahan fitur Rekapitulasi Omset Bulanan, Tab Switcher Buku Kas, dan Export CSV Bulanan.*

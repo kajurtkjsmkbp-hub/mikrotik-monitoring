@@ -121,11 +121,28 @@ const el = {
     toastContainer: document.getElementById('toast-container')
 };
 
-// Web Audio API Chimes (Different sounds for Login & Logout)
-function playLoginSound() {
-    if (!appState.audioAlerts) return;
+// Web Audio API Chimes (Singleton AudioContext to prevent memory/thread leak)
+let sharedAudioCtx = null;
+function getSharedAudioContext() {
     try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!sharedAudioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) sharedAudioCtx = new AudioContextClass();
+        }
+        if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
+            sharedAudioCtx.resume();
+        }
+        return sharedAudioCtx;
+    } catch (e) {
+        return null;
+    }
+}
+
+function playLoginSound() {
+    if (!appState.audioAlerts || document.hidden) return;
+    try {
+        const audioCtx = getSharedAudioContext();
+        if (!audioCtx) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'triangle';
@@ -141,9 +158,10 @@ function playLoginSound() {
 }
 
 function playLogoutSound() {
-    if (!appState.audioAlerts) return;
+    if (!appState.audioAlerts || document.hidden) return;
     try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioCtx = getSharedAudioContext();
+        if (!audioCtx) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'sine';
@@ -212,6 +230,7 @@ el.btnDesktopNotify.addEventListener('click', async () => {
 
 // Toast notification helper
 function showToast(message, type = 'info') {
+    if (document.hidden) return;
     const toast = document.createElement('div');
     const colorClasses = {
         info: 'bg-gray-800 border-blue-500/50 text-blue-300',
@@ -233,8 +252,15 @@ function showToast(message, type = 'info') {
     }, 4000);
 }
 
-// Floating Event Alert (Live popup on top right)
+// Floating Event Alert (Live popup on top right, max 3 visible, skips if tab hidden)
 function showFloatingEventAlert(event) {
+    if (document.hidden) return; // Prevent alert accumulation when tab is inactive
+
+    // Capping: keep at most 3 alerts to prevent layout lag & memory exhaustion
+    while (el.floatingAlerts && el.floatingAlerts.children.length >= 3) {
+        el.floatingAlerts.firstElementChild.remove();
+    }
+
     const isLogin = event.type === 'login';
     const alert = document.createElement('div');
 
@@ -250,7 +276,7 @@ function showFloatingEventAlert(event) {
         ? `IP: <span class="text-cyan-400 font-mono">${event.address}</span> • Metode: <span class="text-gray-300">${event.loginBy || '-'}</span>`
         : `Durasi: <span class="text-amber-300 font-mono">${event.duration || '-'}</span> • Kuota: <span class="text-cyan-400 font-mono">${event.bytesOutFormatted || '0 B'}</span>`;
 
-    alert.className = `p-3.5 rounded-2xl border backdrop-blur-md shadow-2xl transition-all duration-400 transform translate-x-10 opacity-0 pointer-events-auto ${borderBg} flex items-start gap-3`;
+    alert.className = `p-3.5 rounded-2xl border backdrop-blur-md shadow-2xl transition-all duration-300 transform translate-x-10 opacity-0 pointer-events-auto ${borderBg} flex items-start gap-3`;
     alert.innerHTML = `
         ${iconHtml}
         <div class="flex-1 text-xs">
@@ -266,16 +292,21 @@ function showFloatingEventAlert(event) {
     `;
 
     el.floatingAlerts.appendChild(alert);
-    lucide.createIcons();
+    // Crucial: Only create icons inside this new alert, NOT the whole document!
+    lucide.createIcons({ root: alert });
 
-    setTimeout(() => {
+    requestAnimationFrame(() => {
         alert.classList.remove('translate-x-10', 'opacity-0');
-    }, 20);
+    });
 
     setTimeout(() => {
-        alert.classList.add('opacity-0', 'translate-x-10');
-        setTimeout(() => alert.remove(), 400);
-    }, 6000);
+        if (alert.parentNode) {
+            alert.classList.add('opacity-0', 'translate-x-10');
+            setTimeout(() => {
+                if (alert.parentNode) alert.remove();
+            }, 300);
+        }
+    }, 4500);
 }
 
 // Chart.js Setup
@@ -328,6 +359,9 @@ function initChart() {
             scales: {
                 x: { display: false },
                 y: {
+                    min: 0,
+                    beginAtZero: true,
+                    suggestedMax: 1,
                     grid: { color: 'rgba(75, 85, 99, 0.15)' },
                     ticks: {
                         color: '#9ca3af',
@@ -374,7 +408,10 @@ function updateChart(rxBps, txBps) {
         appState.trafficHistory.labels.shift();
     }
 
-    trafficChart.update();
+    // Skip drawing canvas frames when tab is hidden in background
+    if (!document.hidden) {
+        trafficChart.update('none');
+    }
 }
 
 // Live Clock
@@ -1153,10 +1190,12 @@ function renderInterfaces() {
 }
 
 function populateInterfaceSelect(interfaces, selectedIface) {
-    if (!interfaces || interfaces.length === 0) return;
-    el.ifaceSelect.innerHTML = interfaces.map(i => `
-        <option value="${i.name}" class="bg-gray-800" ${i.name === selectedIface ? 'selected' : ''}>
-            ${i.name} (${i.type})
+    if (!Array.isArray(interfaces) || interfaces.length === 0) return;
+    const valid = interfaces.filter(i => i && i.name && i.name !== 'undefined');
+    if (valid.length === 0) return;
+    el.ifaceSelect.innerHTML = valid.map(i => `
+        <option value="${escapeHtml(i.name)}" class="bg-gray-800" ${i.name === selectedIface ? 'selected' : ''}>
+            ${escapeHtml(i.name)} (${escapeHtml(i.type || 'interface')})
         </option>
     `).join('');
 }
@@ -1266,26 +1305,52 @@ const currentNumbers = {
     totalOnline: 0
 };
 
-function animateNumber(element, startVal, endVal, duration = 600, suffix = '', decimals = 0) {
+function animateNumber(element, startVal, endVal, duration = 500, suffix = '', decimals = 0) {
     if (!element) return;
     startVal = Number(startVal) || 0;
     endVal = Number(endVal) || 0;
-    if (startVal === endVal) {
-        element.textContent = (decimals > 0 ? endVal.toFixed(decimals) : Math.round(endVal)) + suffix;
+
+    // Cancel in-flight animation on this specific element to prevent race condition
+    if (element._animId) {
+        cancelAnimationFrame(element._animId);
+        element._animId = null;
+    }
+
+    // When tab is hidden in background or duration is 0, update DOM directly without RAF
+    if (startVal === endVal || document.hidden || duration <= 0) {
+        const safeFinal = Math.max(0, endVal);
+        element.textContent = (decimals > 0 ? safeFinal.toFixed(decimals) : Math.round(safeFinal)) + suffix;
         return;
     }
+
     const startTime = performance.now();
     function step(currentTime) {
         const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        if (elapsed < 0) {
+            const safeFinal = Math.max(0, endVal);
+            element.textContent = (decimals > 0 ? safeFinal.toFixed(decimals) : Math.round(safeFinal)) + suffix;
+            element._animId = null;
+            return;
+        }
+
+        const progress = Math.max(0, Math.min(elapsed / duration, 1));
         const ease = 1 - Math.pow(1 - progress, 3); // easeOutCubic
-        const current = startVal + (endVal - startVal) * ease;
+        let current = startVal + (endVal - startVal) * ease;
+
+        // Anti-negative clamp
+        if (endVal >= 0 && current < 0) current = 0;
+
         element.textContent = (decimals > 0 ? current.toFixed(decimals) : Math.round(current)) + suffix;
+
         if (progress < 1) {
-            requestAnimationFrame(step);
+            element._animId = requestAnimationFrame(step);
+        } else {
+            element._animId = null;
+            const safeFinal = Math.max(0, endVal);
+            element.textContent = (decimals > 0 ? safeFinal.toFixed(decimals) : Math.round(safeFinal)) + suffix;
         }
     }
-    requestAnimationFrame(step);
+    element._animId = requestAnimationFrame(step);
 }
 
 function updateResourceUI(r) {
@@ -1294,10 +1359,10 @@ function updateResourceUI(r) {
     if (r.version) el.routerRos.textContent = `ROS v${r.version}`;
     if (r.cpuFrequency) el.cpuFreqBadge.textContent = `${r.cpuFrequency} MHz`;
 
-    const cpu = r.cpuLoad || 0;
+    const cpu = Math.max(0, Math.min(100, r.cpuLoad || 0));
     animateNumber(el.cpuPercent, currentNumbers.cpu, cpu, 500, '%');
     currentNumbers.cpu = cpu;
-    el.cpuProgressBar.style.width = `${Math.min(cpu, 100)}%`;
+    el.cpuProgressBar.style.width = `${cpu}%`;
 
     if (cpu > 80) {
         el.cpuProgressBar.className = 'h-full bg-rose-500 rounded-full transition-all duration-500';
@@ -1315,37 +1380,37 @@ function updateResourceUI(r) {
 
     const totalMb = Math.round(r.totalMemory / (1024 * 1024));
     const freeMb = Math.round(r.freeMemory / (1024 * 1024));
-    const usedMb = totalMb - freeMb;
-    const memPercent = r.memoryUsagePercent || 0;
+    const usedMb = Math.max(0, totalMb - freeMb);
+    const memPercent = Math.max(0, Math.min(100, r.memoryUsagePercent || 0));
     el.ramText.textContent = `${usedMb} MB / ${totalMb} MB (${memPercent}%)`;
     el.ramProgressBar.style.width = `${memPercent}%`;
 }
 
 function updateCountsUI(counts) {
-    const hs = counts.hotspot || 0;
+    const hs = Math.max(0, counts.hotspot || 0);
     animateNumber(el.statHotspotCount, currentNumbers.hotspotCount, hs, 500);
     currentNumbers.hotspotCount = hs;
     el.tabBadgeHotspot.textContent = hs;
 
-    const radiusCount = (latestData.hotspot || []).filter(u => u.radius).length;
+    const radiusCount = Math.max(0, (latestData.hotspot || []).filter(u => u.radius).length);
     animateNumber(el.statHotspotRadius, currentNumbers.radiusCount, radiusCount, 500);
     currentNumbers.radiusCount = radiusCount;
 
-    const dhcpTotal = latestData.dhcp.length || 0;
+    const dhcpTotal = Math.max(0, latestData.dhcp.length || 0);
     animateNumber(el.statDhcpCount, currentNumbers.dhcpCount, dhcpTotal, 500);
     currentNumbers.dhcpCount = dhcpTotal;
 
-    const bound = counts.dhcp || 0;
+    const bound = Math.max(0, counts.dhcp || 0);
     animateNumber(el.statDhcpBound, currentNumbers.dhcpBound, bound, 500);
     currentNumbers.dhcpBound = bound;
     el.tabBadgeDhcp.textContent = bound;
 
-    const ppp = counts.ppp || 0;
+    const ppp = Math.max(0, counts.ppp || 0);
     animateNumber(el.statPppoeCount, currentNumbers.pppoeCount, ppp, 500);
     currentNumbers.pppoeCount = ppp;
     el.tabBadgePpp.textContent = ppp;
 
-    const total = counts.totalOnline || 0;
+    const total = Math.max(0, counts.totalOnline || (hs + ppp));
     animateNumber(el.statTotalOnline, currentNumbers.totalOnline, total, 500);
     currentNumbers.totalOnline = total;
 }
@@ -1373,33 +1438,52 @@ function escapeJs(str) {
 
 // VOUCHER OMSET STATS CARD HELPER
 let currentRevenueToday = 0;
-function animateCurrency(element, startVal, endVal, duration = 600) {
+function animateCurrency(element, startVal, endVal, duration = 500) {
     if (!element) return;
     startVal = Number(startVal) || 0;
     endVal = Number(endVal) || 0;
-    if (startVal === endVal) {
-        element.textContent = `Rp ${endVal.toLocaleString('id-ID')}`;
+
+    if (element._animId) {
+        cancelAnimationFrame(element._animId);
+        element._animId = null;
+    }
+
+    if (startVal === endVal || document.hidden || duration <= 0) {
+        element.textContent = `Rp ${Math.max(0, Math.round(endVal)).toLocaleString('id-ID')}`;
         return;
     }
+
     const startTime = performance.now();
     function step(currentTime) {
         const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        if (elapsed < 0) {
+            element.textContent = `Rp ${Math.max(0, Math.round(endVal)).toLocaleString('id-ID')}`;
+            element._animId = null;
+            return;
+        }
+
+        const progress = Math.max(0, Math.min(elapsed / duration, 1));
         const ease = 1 - Math.pow(1 - progress, 3);
-        const current = Math.round(startVal + (endVal - startVal) * ease);
+        let current = Math.round(startVal + (endVal - startVal) * ease);
+        if (endVal >= 0 && current < 0) current = 0;
+
         element.textContent = `Rp ${current.toLocaleString('id-ID')}`;
+
         if (progress < 1) {
-            requestAnimationFrame(step);
+            element._animId = requestAnimationFrame(step);
+        } else {
+            element._animId = null;
+            element.textContent = `Rp ${Math.max(0, Math.round(endVal)).toLocaleString('id-ID')}`;
         }
     }
-    requestAnimationFrame(step);
+    element._animId = requestAnimationFrame(step);
 }
 
 function updateOmsetUI(summary) {
     if (!summary || !summary.today) return;
     const t = summary.today || {};
-    const rev = t.totalRevenue || 0;
-    const cnt = t.totalCount || 0;
+    const rev = Math.max(0, t.totalRevenue || 0);
+    const cnt = Math.max(0, t.totalCount || 0);
     animateCurrency(el.statOmsetToday, currentRevenueToday, rev);
     currentRevenueToday = rev;
     if (el.statOmsetVouchersToday) {
@@ -1416,6 +1500,35 @@ async function fetchOmsetToday() {
         }
     } catch (e) {}
 }
+
+// Page Visibility API: Instantly recover and clean up when returning from another tab
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        // Tab became visible again:
+        // 1. Purge excess floating alerts immediately
+        while (el.floatingAlerts && el.floatingAlerts.children.length > 2) {
+            el.floatingAlerts.firstElementChild.remove();
+        }
+
+        // 2. Instantly update KPI numbers without laggy Lerp animation
+        if (latestData && latestData.hotspot) {
+            updateCountsUI({
+                hotspot: latestData.hotspot.length,
+                dhcp: (latestData.dhcp || []).filter(d => d.status === 'bound').length,
+                ppp: (latestData.ppp || []).length,
+                totalOnline: (latestData.hotspot || []).length + (latestData.ppp || []).length
+            });
+        }
+
+        // 3. Render chart with accumulated data
+        if (trafficChart) {
+            trafficChart.update();
+        }
+
+        // 4. Update Omset
+        fetchOmsetToday();
+    }
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
