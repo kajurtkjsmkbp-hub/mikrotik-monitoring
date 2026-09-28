@@ -324,7 +324,26 @@
                     </div>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Dropdown Filter Bulan (untuk Rekap Harian) -->
+                    <div id="filter-daily-wrapper" class="flex items-center gap-1.5">
+                        <div class="relative">
+                            <select id="filter-daily-month" class="bg-gray-800 hover:bg-gray-750 border border-gray-700 text-xs text-amber-300 font-medium rounded-xl pl-3 pr-8 py-1.5 focus:outline-none focus:border-amber-500 transition cursor-pointer appearance-none">
+                                <option value="">Semua Bulan (Terbaru)</option>
+                            </select>
+                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-2.5 pointer-events-none"></i>
+                        </div>
+                    </div>
+
+                    <!-- Dropdown Filter Tahun (untuk Rekap Bulanan) -->
+                    <div id="filter-monthly-wrapper" class="hidden items-center gap-1.5">
+                        <div class="relative">
+                            <select id="filter-monthly-year" class="bg-gray-800 hover:bg-gray-750 border border-gray-700 text-xs text-cyan-300 font-medium rounded-xl pl-3 pr-8 py-1.5 focus:outline-none focus:border-cyan-500 transition cursor-pointer appearance-none">
+                                <option value="">Semua Tahun</option>
+                            </select>
+                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-2.5 pointer-events-none"></i>
+                        </div>
+                    </div>
+
                     <!-- Tab Switcher -->
                     <div class="flex items-center bg-gray-950/70 p-1 rounded-xl border border-gray-800 text-xs">
                         <button id="tab-rekap-harian" onclick="switchHistoryTab('daily')" class="px-3 py-1.5 rounded-lg font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 shadow-sm">
@@ -364,6 +383,9 @@
                             <td colspan="7" class="text-center py-8 text-gray-500 font-mono">Memuat riwayat harian...</td>
                         </tr>
                     </tbody>
+                    <tfoot id="daily-history-tfoot" class="hidden bg-gray-850/90 font-bold border-t-2 border-amber-500/40 text-xs text-gray-200">
+                        <!-- Populated by JS -->
+                    </tfoot>
                 </table>
             </div>
 
@@ -386,6 +408,9 @@
                             <td colspan="7" class="text-center py-8 text-gray-500 font-mono">Memuat riwayat bulanan...</td>
                         </tr>
                     </tbody>
+                    <tfoot id="monthly-history-tfoot" class="hidden bg-gray-850/90 font-bold border-t-2 border-cyan-500/40 text-xs text-gray-200">
+                        <!-- Populated by JS -->
+                    </tfoot>
                 </table>
             </div>
         </section>
@@ -549,6 +574,6 @@
     <!-- Toast Notifications -->
     <div id="voucher-toast-container" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
 
-    <script src="/voucher.js?v=20260928_4"></script>
+    <script src="/voucher.js?v=20260928_5"></script>
 </body>
 </html>

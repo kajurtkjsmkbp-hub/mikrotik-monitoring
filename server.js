@@ -764,8 +764,18 @@ app.get('/api/vouchers/daily-history', async (req, res) => {
 app.get('/api/vouchers/monthly-history', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit, 10) || 24;
-        const history = await voucherDb.getMonthlyHistory(limit);
+        const year = req.query.year || null;
+        const history = await voucherDb.getMonthlyHistory({ limit, year });
         res.json(history);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/vouchers/periods', async (req, res) => {
+    try {
+        const periods = await voucherDb.getAvailablePeriods();
+        res.json(periods);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

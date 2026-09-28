@@ -637,23 +637,65 @@ class VoucherSQLiteDatabase {
 
         const rows = await this.all(sql, params);
 
-        return rows.map(r => {
+        let totalPeriodRevenue = 0;
+        let totalPeriodCount = 0;
+        let totalPeriod1kCount = 0;
+        let totalPeriod1kRevenue = 0;
+        let totalPeriod2kCount = 0;
+        let totalPeriod2kRevenue = 0;
+        let totalPeriod3kCount = 0;
+        let totalPeriod3kRevenue = 0;
+
+        const items = rows.map(r => {
             let formattedDate = r.dateKey;
             try {
                 const [y, m, d] = r.dateKey.split('-').map(Number);
                 formattedDate = getIndoDateString(new Date(y, m - 1, d));
             } catch (e) {}
 
+            totalPeriodRevenue += (r.totalRevenue || 0);
+            totalPeriodCount += (r.totalCount || 0);
+            totalPeriod1kCount += (r.count1k || 0);
+            totalPeriod1kRevenue += (r.revenue1k || 0);
+            totalPeriod2kCount += (r.count2k || 0);
+            totalPeriod2kRevenue += (r.revenue2k || 0);
+            totalPeriod3kCount += (r.count3k || 0);
+            totalPeriod3kRevenue += (r.revenue3k || 0);
+
             return {
                 ...r,
                 formattedDate
             };
         });
+
+        return {
+            items,
+            summary: {
+                totalCount: totalPeriodCount,
+                totalRevenue: totalPeriodRevenue,
+                count1k: totalPeriod1kCount,
+                revenue1k: totalPeriod1kRevenue,
+                count2k: totalPeriod2kCount,
+                revenue2k: totalPeriod2kRevenue,
+                count3k: totalPeriod3kCount,
+                revenue3k: totalPeriod3kRevenue,
+                selectedMonth: month || 'all'
+            }
+        };
     }
 
     // Get Monthly Sales History (Rekap Omset Bulanan)
-    async getMonthlyHistory(limit = 24) {
-        const rows = await this.all(`
+    async getMonthlyHistory(options = 24) {
+        let limit = 24;
+        let year = null;
+        if (typeof options === 'object' && options !== null) {
+            limit = parseInt(options.limit, 10) || 24;
+            year = options.year || null;
+        } else {
+            limit = parseInt(options, 10) || 24;
+        }
+
+        let sql = `
             SELECT 
                 substr(activated_date, 1, 7) as monthKey,
                 SUM(CASE WHEN package_key = '1k' THEN 1 ELSE 0 END) as count1k,
@@ -666,30 +708,121 @@ class VoucherSQLiteDatabase {
                 SUM(price) as totalRevenue
             FROM vouchers
             WHERE status = 'used' AND activated_date IS NOT NULL
+        `;
+        const params = [];
+        if (year) {
+            sql += ` AND substr(activated_date, 1, 4) = ? `;
+            params.push(String(year));
+        }
+        sql += `
             GROUP BY substr(activated_date, 1, 7)
             ORDER BY monthKey DESC
             LIMIT ?
-        `, [limit]);
+        `;
+        params.push(limit);
 
-        return rows.map(r => {
+        const rows = await this.all(sql, params);
+
+        let totalYearRevenue = 0;
+        let totalYearCount = 0;
+        let totalYear1kCount = 0;
+        let totalYear1kRevenue = 0;
+        let totalYear2kCount = 0;
+        let totalYear2kRevenue = 0;
+        let totalYear3kCount = 0;
+        let totalYear3kRevenue = 0;
+
+        const items = rows.map(r => {
             let monthLabel = r.monthKey;
             let monthName = '';
-            let year = '';
+            let yStr = '';
             try {
                 const [y, m] = r.monthKey.split('-').map(Number);
                 const mIdx = m - 1;
                 monthName = INDO_MONTHS[mIdx] || `Bulan ${m}`;
-                year = String(y);
-                monthLabel = `${monthName} ${year}`;
+                yStr = String(y);
+                monthLabel = `${monthName} ${yStr}`;
             } catch (e) {}
+
+            totalYearRevenue += (r.totalRevenue || 0);
+            totalYearCount += (r.totalCount || 0);
+            totalYear1kCount += (r.count1k || 0);
+            totalYear1kRevenue += (r.revenue1k || 0);
+            totalYear2kCount += (r.count2k || 0);
+            totalYear2kRevenue += (r.revenue2k || 0);
+            totalYear3kCount += (r.count3k || 0);
+            totalYear3kRevenue += (r.revenue3k || 0);
 
             return {
                 ...r,
                 monthName,
-                year,
+                year: yStr,
                 monthLabel
             };
         });
+
+        return {
+            items,
+            summary: {
+                totalCount: totalYearCount,
+                totalRevenue: totalYearRevenue,
+                count1k: totalYear1kCount,
+                revenue1k: totalYear1kRevenue,
+                count2k: totalYear2kCount,
+                revenue2k: totalYear2kRevenue,
+                count3k: totalYear3kCount,
+                revenue3k: totalYear3kRevenue,
+                selectedYear: year || 'all'
+            }
+        };
+    }
+
+    // Get Distinct Available Years and Months for Filters
+    async getAvailablePeriods() {
+        const yearRows = await this.all(`
+            SELECT DISTINCT substr(activated_date, 1, 4) as year
+            FROM vouchers
+            WHERE status = 'used' AND activated_date IS NOT NULL
+            ORDER BY year DESC
+        `);
+
+        const monthRows = await this.all(`
+            SELECT DISTINCT substr(activated_date, 1, 7) as monthKey
+            FROM vouchers
+            WHERE status = 'used' AND activated_date IS NOT NULL
+            ORDER BY monthKey DESC
+        `);
+
+        const months = monthRows.map(r => {
+            let label = r.monthKey;
+            try {
+                const [y, m] = r.monthKey.split('-').map(Number);
+                const mIdx = m - 1;
+                const mName = INDO_MONTHS[mIdx] || `Bulan ${m}`;
+                label = `${mName} ${y}`;
+            } catch (e) {}
+            return {
+                monthKey: r.monthKey,
+                monthLabel: label,
+                year: r.monthKey.split('-')[0]
+            };
+        });
+
+        const years = yearRows.map(r => r.year).filter(Boolean);
+
+        const parts = getJakartaParts(new Date());
+        if (!years.includes(parts.year)) {
+            years.unshift(parts.year);
+        }
+        if (!months.some(m => m.monthKey === parts.monthKey)) {
+            months.unshift({
+                monthKey: parts.monthKey,
+                monthLabel: `${parts.monthName} ${parts.year}`,
+                year: parts.year
+            });
+        }
+
+        return { years, months };
     }
 
     // Get filtered and paginated vouchers

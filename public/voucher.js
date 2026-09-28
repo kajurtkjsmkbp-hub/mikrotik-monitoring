@@ -8,6 +8,7 @@ let vState = {
     dateFilter: null,
     monthFilter: null,
     historyMonthFilter: null,
+    historyYearFilter: null,
     activeHistoryTab: 'daily',
     searchQuery: '',
     currentPage: 1,
@@ -52,12 +53,18 @@ const vel = new Proxy({}, {
             statCount3kToday: 'stat-count-3k-today',
             statStock3k: 'stat-stock-3k',
             cardStock3k: 'card-stock-3k',
+            filterDailyWrapper: 'filter-daily-wrapper',
+            filterDailyMonth: 'filter-daily-month',
+            filterMonthlyWrapper: 'filter-monthly-wrapper',
+            filterMonthlyYear: 'filter-monthly-year',
             tabRekapHarian: 'tab-rekap-harian',
             tabRekapBulanan: 'tab-rekap-bulanan',
             containerDailyHistory: 'container-daily-history',
             containerMonthlyHistory: 'container-monthly-history',
             dailyHistoryTbody: 'daily-history-tbody',
+            dailyHistoryTfoot: 'daily-history-tfoot',
             monthlyHistoryTbody: 'monthly-history-tbody',
+            monthlyHistoryTfoot: 'monthly-history-tfoot',
             historyFilterBadge: 'history-filter-badge',
             historyFilterMonthText: 'history-filter-month-text',
             btnExportHistoryCsv: 'btn-export-history-csv',
@@ -294,19 +301,70 @@ function renderSummary(summary) {
     vel.cardStock3k.textContent = stock['3k'] || 0;
 }
 
+// Load distinct available years and months from backend into dropdown filters
+async function loadAvailablePeriods() {
+    try {
+        const res = await fetch('/api/vouchers/periods');
+        if (!res.ok) return;
+        const data = await res.json();
+        const years = data.years || [];
+        const months = data.months || [];
+
+        // 1. Populate Month Filter (for Rekap Harian)
+        if (vel.filterDailyMonth) {
+            const currentVal = vState.historyMonthFilter || '';
+            let html = '<option value="">Semua Bulan (Terbaru)</option>';
+            months.forEach(m => {
+                const selected = m.monthKey === currentVal ? 'selected' : '';
+                html += `<option value="${escapeHtml(m.monthKey)}" ${selected}>${escapeHtml(m.monthLabel)}</option>`;
+            });
+            vel.filterDailyMonth.innerHTML = html;
+        }
+
+        // 2. Populate Year Filter (for Rekap Bulanan)
+        if (vel.filterMonthlyYear) {
+            const currentYearVal = vState.historyYearFilter || '';
+            let html = '<option value="">Semua Tahun</option>';
+            years.forEach(y => {
+                const selected = y === currentYearVal ? 'selected' : '';
+                html += `<option value="${escapeHtml(y)}" ${selected}>Tahun ${escapeHtml(y)}</option>`;
+            });
+            vel.filterMonthlyYear.innerHTML = html;
+        }
+    } catch (e) {
+        console.error('Error loading available periods:', e);
+    }
+}
+
 // History Tab Switcher
 window.switchHistoryTab = function(tab) {
     vState.activeHistoryTab = tab;
     if (tab === 'daily') {
         if (vel.tabRekapHarian) vel.tabRekapHarian.className = 'px-3 py-1.5 rounded-lg font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 shadow-sm';
         if (vel.tabRekapBulanan) vel.tabRekapBulanan.className = 'px-3 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5';
+        if (vel.filterDailyWrapper) {
+            vel.filterDailyWrapper.classList.remove('hidden');
+            vel.filterDailyWrapper.classList.add('flex');
+        }
+        if (vel.filterMonthlyWrapper) {
+            vel.filterMonthlyWrapper.classList.add('hidden');
+            vel.filterMonthlyWrapper.classList.remove('flex');
+        }
         if (vel.containerDailyHistory) vel.containerDailyHistory.classList.remove('hidden');
         if (vel.containerMonthlyHistory) vel.containerMonthlyHistory.classList.add('hidden');
         if (vel.exportHistoryLabel) vel.exportHistoryLabel.textContent = 'Export CSV Harian';
         loadDailyHistory();
     } else {
-        if (vel.tabRekapBulanan) vel.tabRekapBulanan.className = 'px-3 py-1.5 rounded-lg font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 shadow-sm';
+        if (vel.tabRekapBulanan) vel.tabRekapBulanan.className = 'px-3 py-1.5 rounded-lg font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 transition flex items-center gap-1.5 shadow-sm';
         if (vel.tabRekapHarian) vel.tabRekapHarian.className = 'px-3 py-1.5 rounded-lg font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5';
+        if (vel.filterDailyWrapper) {
+            vel.filterDailyWrapper.classList.add('hidden');
+            vel.filterDailyWrapper.classList.remove('flex');
+        }
+        if (vel.filterMonthlyWrapper) {
+            vel.filterMonthlyWrapper.classList.remove('hidden');
+            vel.filterMonthlyWrapper.classList.add('flex');
+        }
         if (vel.containerDailyHistory) vel.containerDailyHistory.classList.add('hidden');
         if (vel.containerMonthlyHistory) vel.containerMonthlyHistory.classList.remove('hidden');
         if (vel.exportHistoryLabel) vel.exportHistoryLabel.textContent = 'Export CSV Bulanan';
@@ -317,6 +375,9 @@ window.switchHistoryTab = function(tab) {
 
 window.filterDailyByMonth = function(monthKey, monthLabel) {
     vState.historyMonthFilter = monthKey;
+    if (vel.filterDailyMonth) {
+        vel.filterDailyMonth.value = monthKey;
+    }
     if (vel.historyFilterBadge) {
         vel.historyFilterBadge.classList.remove('hidden');
         vel.historyFilterBadge.classList.add('inline-flex');
@@ -329,6 +390,9 @@ window.filterDailyByMonth = function(monthKey, monthLabel) {
 
 window.clearMonthHistoryFilter = function() {
     vState.historyMonthFilter = null;
+    if (vel.filterDailyMonth) {
+        vel.filterDailyMonth.value = '';
+    }
     if (vel.historyFilterBadge) {
         vel.historyFilterBadge.classList.add('hidden');
         vel.historyFilterBadge.classList.remove('inline-flex');
@@ -344,7 +408,9 @@ async function loadDailyHistory() {
             url += `&month=${encodeURIComponent(vState.historyMonthFilter)}`;
         }
         const res = await fetch(url);
-        const list = await res.json();
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.items || []);
+        const summary = Array.isArray(data) ? null : data.summary;
 
         if (!list || list.length === 0) {
             vel.dailyHistoryTbody.innerHTML = `
@@ -354,6 +420,10 @@ async function loadDailyHistory() {
                     </td>
                 </tr>
             `;
+            if (vel.dailyHistoryTfoot) {
+                vel.dailyHistoryTfoot.classList.add('hidden');
+                vel.dailyHistoryTfoot.innerHTML = '';
+            }
             return;
         }
 
@@ -391,7 +461,44 @@ async function loadDailyHistory() {
             </tr>
         `).join('');
 
-        lucide.createIcons({ root: vel.dailyHistoryTbody });
+        // Render Total Summary Row in Table Footer
+        if (summary && vel.dailyHistoryTfoot) {
+            const titleLabel = summary.selectedMonth !== 'all' ? `TOTAL BULAN INI` : `TOTAL PERIODE (${list.length} HARI)`;
+            vel.dailyHistoryTfoot.innerHTML = `
+                <tr>
+                    <td class="px-5 py-3.5 text-amber-400 uppercase text-xs font-extrabold flex items-center gap-1.5">
+                        <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
+                        <span>${escapeHtml(titleLabel)}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center">
+                        <span class="text-amber-300 font-bold font-mono">${summary.count1k || 0} lbr</span>
+                        <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue1k || 0).toLocaleString('id-ID')}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center">
+                        <span class="text-cyan-300 font-bold font-mono">${summary.count2k || 0} lbr</span>
+                        <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue2k || 0).toLocaleString('id-ID')}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center">
+                        <span class="text-emerald-300 font-bold font-mono">${summary.count3k || 0} lbr</span>
+                        <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue3k || 0).toLocaleString('id-ID')}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center font-extrabold text-white font-mono text-xs">
+                        ${summary.totalCount || 0} voucher
+                    </td>
+                    <td class="px-5 py-3.5 text-right font-mono text-amber-400 font-extrabold text-sm sm:text-base">
+                        Rp ${(summary.totalRevenue || 0).toLocaleString('id-ID')}
+                    </td>
+                    <td class="px-4 py-3.5 text-center text-[10px] text-gray-500 font-sans">
+                        Rekap
+                    </td>
+                </tr>
+            `;
+            vel.dailyHistoryTfoot.classList.remove('hidden');
+        } else if (vel.dailyHistoryTfoot) {
+            vel.dailyHistoryTfoot.classList.add('hidden');
+        }
+
+        lucide.createIcons({ root: vel.containerDailyHistory });
     } catch (e) {
         console.error('Error loading daily history:', e);
     }
@@ -400,17 +507,27 @@ async function loadDailyHistory() {
 // Fetch & Render Monthly History Table
 async function loadMonthlyHistory() {
     try {
-        const res = await fetch('/api/vouchers/monthly-history?limit=24');
-        const list = await res.json();
+        let url = '/api/vouchers/monthly-history?limit=36';
+        if (vState.historyYearFilter) {
+            url += `&year=${encodeURIComponent(vState.historyYearFilter)}`;
+        }
+        const res = await fetch(url);
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.items || []);
+        const summary = Array.isArray(data) ? null : data.summary;
 
         if (!list || list.length === 0) {
             vel.monthlyHistoryTbody.innerHTML = `
                 <tr>
                     <td colspan="7" class="text-center py-8 text-gray-500 font-sans">
-                        Belum ada riwayat bulanan tercatat. Data omset akan terkumpul otomatis setiap bulan.
+                        Belum ada riwayat bulanan tercatat untuk periode ini. Data omset akan terkumpul otomatis setiap bulan.
                     </td>
                 </tr>
             `;
+            if (vel.monthlyHistoryTfoot) {
+                vel.monthlyHistoryTfoot.classList.add('hidden');
+                vel.monthlyHistoryTfoot.innerHTML = '';
+            }
             return;
         }
 
@@ -437,7 +554,7 @@ async function loadMonthlyHistory() {
                 <td class="px-4 py-3.5 text-center font-bold text-gray-200 font-mono">
                     ${item.totalCount || 0} voucher
                 </td>
-                <td class="px-5 py-3.5 text-right font-mono text-amber-400 font-extrabold text-base">
+                <td class="px-5 py-3.5 text-right font-mono text-cyan-400 font-extrabold text-base">
                     Rp ${(item.totalRevenue || 0).toLocaleString('id-ID')}
                 </td>
                 <td class="px-4 py-3.5 text-center">
@@ -449,7 +566,44 @@ async function loadMonthlyHistory() {
             </tr>
         `).join('');
 
-        lucide.createIcons({ root: vel.monthlyHistoryTbody });
+        // Render Grand Total Summary Row in Table Footer
+        if (summary && vel.monthlyHistoryTfoot) {
+            const titleLabel = summary.selectedYear !== 'all' ? `TOTAL OMSET TAHUN ${summary.selectedYear}` : `TOTAL OMSET KESELURUHAN`;
+            vel.monthlyHistoryTfoot.innerHTML = `
+                <tr>
+                    <td class="px-5 py-3.5 text-cyan-400 uppercase text-xs font-extrabold flex items-center gap-1.5">
+                        <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
+                        <span>${escapeHtml(titleLabel)}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center">
+                        <span class="text-amber-300 font-bold font-mono">${summary.count1k || 0} lbr</span>
+                        <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue1k || 0).toLocaleString('id-ID')}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center">
+                        <span class="text-cyan-300 font-bold font-mono">${summary.count2k || 0} lbr</span>
+                        <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue2k || 0).toLocaleString('id-ID')}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center">
+                        <span class="text-emerald-300 font-bold font-mono">${summary.count3k || 0} lbr</span>
+                        <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue3k || 0).toLocaleString('id-ID')}</span>
+                    </td>
+                    <td class="px-4 py-3.5 text-center font-extrabold text-white font-mono text-xs">
+                        ${summary.totalCount || 0} voucher
+                    </td>
+                    <td class="px-5 py-3.5 text-right font-mono text-cyan-400 font-extrabold text-base">
+                        Rp ${(summary.totalRevenue || 0).toLocaleString('id-ID')}
+                    </td>
+                    <td class="px-4 py-3.5 text-center text-[10px] text-gray-500 font-sans">
+                        Tahunan
+                    </td>
+                </tr>
+            `;
+            vel.monthlyHistoryTfoot.classList.remove('hidden');
+        } else if (vel.monthlyHistoryTfoot) {
+            vel.monthlyHistoryTfoot.classList.add('hidden');
+        }
+
+        lucide.createIcons({ root: vel.containerMonthlyHistory });
     } catch (e) {
         console.error('Error loading monthly history:', e);
     }
@@ -571,6 +725,12 @@ async function loadInitialData() {
     }
 
     try {
+        await loadAvailablePeriods();
+    } catch (e) {
+        console.error('Error loading periods:', e);
+    }
+
+    try {
         await loadDailyHistory();
     } catch (e) {
         console.error('Error loading daily history:', e);
@@ -594,6 +754,30 @@ window.filterByDate = function(dateKey) {
     const tableSection = document.querySelector('section:last-of-type');
     if (tableSection) tableSection.scrollIntoView({ behavior: 'smooth' });
 };
+
+// History Filter Dropdown Listeners
+on(vel.filterDailyMonth, 'change', (e) => {
+    vState.historyMonthFilter = e.target.value || null;
+    if (vState.historyMonthFilter) {
+        if (vel.historyFilterBadge) {
+            vel.historyFilterBadge.classList.remove('hidden');
+            vel.historyFilterBadge.classList.add('inline-flex');
+        }
+        const optText = e.target.options[e.target.selectedIndex]?.text || vState.historyMonthFilter;
+        if (vel.historyFilterMonthText) vel.historyFilterMonthText.textContent = optText;
+    } else {
+        if (vel.historyFilterBadge) {
+            vel.historyFilterBadge.classList.add('hidden');
+            vel.historyFilterBadge.classList.remove('inline-flex');
+        }
+    }
+    loadDailyHistory();
+});
+
+on(vel.filterMonthlyYear, 'change', (e) => {
+    vState.historyYearFilter = e.target.value || null;
+    loadMonthlyHistory();
+});
 
 // Filter Changes
 on(vel.filterStatus, 'change', (e) => {
@@ -955,8 +1139,14 @@ window.clearStock = async function(pkgKey) {
 window.exportHistoryCsv = async function() {
     try {
         if (vState.activeHistoryTab === 'monthly') {
-            const res = await fetch('/api/vouchers/monthly-history?limit=120');
-            const list = await res.json();
+            let url = '/api/vouchers/monthly-history?limit=120';
+            if (vState.historyYearFilter) {
+                url += `&year=${encodeURIComponent(vState.historyYearFilter)}`;
+            }
+            const res = await fetch(url);
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data.items || []);
+
             if (!list || list.length === 0) {
                 showToast('Belum ada data bulanan untuk diunduh', 'info');
                 return;
@@ -968,7 +1158,8 @@ window.exportHistoryCsv = async function() {
             const encodedUri = encodeURI('data:text/csv;charset=utf-8,' + csv);
             const link = document.createElement('a');
             link.setAttribute('href', encodedUri);
-            link.setAttribute('download', `rekap_omset_bulanan_${new Date().toISOString().slice(0, 10)}.csv`);
+            const filename = vState.historyYearFilter ? `rekap_omset_bulanan_tahun_${vState.historyYearFilter}.csv` : `rekap_omset_bulanan_${new Date().toISOString().slice(0, 10)}.csv`;
+            link.setAttribute('download', filename);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -979,7 +1170,9 @@ window.exportHistoryCsv = async function() {
                 url += `&month=${encodeURIComponent(vState.historyMonthFilter)}`;
             }
             const res = await fetch(url);
-            const list = await res.json();
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data.items || []);
+
             if (!list || list.length === 0) {
                 showToast('Belum ada data harian untuk diunduh', 'info');
                 return;
@@ -991,7 +1184,8 @@ window.exportHistoryCsv = async function() {
             const encodedUri = encodeURI('data:text/csv;charset=utf-8,' + csv);
             const link = document.createElement('a');
             link.setAttribute('href', encodedUri);
-            link.setAttribute('download', `rekap_omset_harian_${new Date().toISOString().slice(0, 10)}.csv`);
+            const filename = vState.historyMonthFilter ? `rekap_omset_harian_${vState.historyMonthFilter}.csv` : `rekap_omset_harian_${new Date().toISOString().slice(0, 10)}.csv`;
+            link.setAttribute('download', filename);
             document.body.appendChild(link);
             link.click();
             link.remove();
