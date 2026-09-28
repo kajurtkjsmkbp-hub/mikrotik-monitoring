@@ -219,5 +219,35 @@ Jika komputer/LXC server web dimatikan (misal malam hari atau listrik padam), se
   4. **Filter Antar-Bulan**: Menekan tombol "Lihat Hari" pada salah satu bulan akan langsung memfilter tabel harian hanya untuk bulan tersebut, disertai badge filter dan tombol reset silang (✕).
   5. **Export CSV Bulanan & Harian**: Tombol "Export CSV" otomatis menyesuaikan data yang sedang aktif (rekap harian vs rekap bulanan).
 
+### F. Filter Dropdown Periode Dinamis & Baris Total Rekap Tahunan/Bulanan (28 September 2026)
+- **Kebutuhan**: Seiring berjalannya waktu, data riwayat hari dan bulan bertambah banyak. Pemilik usaha membutuhkan menu tarik-turun (*dropdown*) agar tabel harian tidak memanjang tanpa batas saat ganti bulan, dan tabel bulanan dapat difilter per tahun (misal Tahun 2026, 2027) lengkap dengan ringkasan total omset tahunan.
+- **Implementasi Backend (`voucher-db.js` & `server.js`)**:
+  1. Method `voucherDb.getAvailablePeriods()` mengambil seluruh distinct tahun dan distinct bulan dari voucher yang sudah terpakai (`status = 'used'`) secara dinamis.
+  2. Method `voucherDb.getMonthlyHistory({ limit, year })` mendukung penyaringan per tahun (`substr(activated_date, 1, 4) = ?`) dan mengembalikan objek `{ items, summary }` berisi total omset tahunan serta total lembar voucher per paket.
+  3. Method `voucherDb.getDailyHistory({ limit, month })` mengembalikan objek `{ items, summary }` berisi total omset untuk bulan/periode yang dipilih.
+  4. Route baru `/api/vouchers/periods` menyajikan daftar tahun dan bulan untuk dropdown frontend.
+- **Implementasi Frontend (`public/voucher.html` & `public/voucher.js`)**:
+  1. **Dropdown Filter Bulan (di Tab Rekap Harian)**: Dropdown `<select id="filter-daily-month">` otomatis terisi daftar bulan (`Semua Bulan`, `September 2026`, dst.). Memilih bulan tertentu langsung menyaring tabel harian.
+  2. **Dropdown Filter Tahun (di Tab Rekap Bulanan)**: Dropdown `<select id="filter-monthly-year">` otomatis muncul saat tab Bulanan aktif (`Semua Tahun`, `Tahun 2026`, dst.).
+  3. **Baris Grand Total Footer (`tfoot`)**:
+     - Di bawah tabel harian: baris **TOTAL PERIODE / TOTAL BULAN INI** menghitung total lembar 1K, 2K, 3K, total voucher, dan total pendapatan rupiah.
+     - Di bawah tabel bulanan: baris **TOTAL OMSET TAHUNAN / KESELURUHAN** menampilkan akumulasi omset satu tahun penuh.
+  4. **Export CSV Kontekstual**: File CSV yang diunduh otomatis menyaring baris dan memberi nama file sesuai bulan/tahun yang dipilih (contoh: `rekap_omset_harian_2026-09.csv` atau `rekap_omset_bulanan_tahun_2026.csv`).
+
+### G. Transformasi Kartu ke-3 Dashboard Utama: Total Omset Bulan Berjalan (28 September 2026)
+- **Kebutuhan**: Pada Dashboard Utama (`public/index.html`), pemilik usaha menginginkan kartu ke-3 (yang sebelumnya menampilkan "Total User Login" & PPPoE) diganti menjadi **Total Omset Bulan Berjalan** (misalnya *Bulan September 2026*, lalu otomatis berganti saat masuk bulan baru seperti *Oktober 2026*, dst.) dengan format besar dan jelas seperti kartu omset harian.
+- **Implementasi Frontend (`public/index.html` & `public/app.js`)**:
+  1. **Kartu ke-3 Baru (Luxury Violet Theme)**:
+     - Judul: `Omset Bulan Ini` disertai badge bulan dinamis (`stat-omset-month-badge`, misal: `September 2026`).
+     - Nilai Utama: `stat-omset-month` dengan angka rupiah tebal (`Rp XX.XXX`).
+     - Subtitle: `stat-omset-vouchers-month` (`X voucher diaktifkan bulan ini`).
+     - Ikon: `wallet` (dompet keuangan).
+     - Link Klik: Seluruh kartu dapat diklik untuk langsung membuka `/voucher.html`.
+  2. **Pembaruan Real-Time (`app.js`)**:
+     - Fungsi `updateOmsetUI(summary)` mengupdate kartu hari ini (`summary.today`) sekaligus kartu bulan berjalan (`summary.thisMonth`) secara otomatis via event Socket.IO (`initial_state`, `voucher_summary_update`, dan polling interval).
+     - Angka nominal rupiah dianimasikan secara halus menggunakan `animateCurrency()`.
+  3. **Penyesuaian Cache Buster**: Script dimuat dengan `/app.js?v=20260928_2` dan `/voucher.js?v=20260928_5` agar browser client langsung memperbarui file script tanpa tertahan cache lawas.
+
 ---
-*Catatan Terakhir Diperbarui: 28 September 2026 - Penambahan fitur Rekapitulasi Omset Bulanan, Tab Switcher Buku Kas, dan Export CSV Bulanan.*
+*Catatan Terakhir Diperbarui: 28 September 2026 - Penambahan Filter Dropdown Periode (Bulan/Tahun), Baris Total Rekap Tahunan, dan Transformasi Kartu ke-3 Dashboard Utama menjadi Omset Bulan Berjalan.*
+
