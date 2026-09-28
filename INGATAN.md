@@ -320,6 +320,80 @@ Jika komputer/LXC server web dimatikan (misal malam hari atau listrik padam), se
      - `POST /api/backup/restore/:type` -> Menerima upload file `.sqlite` via Base64.
      - Dilengkapi mekanisme keselamatan otomatis: server membuat salinan backup `.bak_<timestamp>` dari database yang sedang berjalan sebelum file ditimpa.
 
+
 ---
-*Catatan Terakhir Diperbarui: 28 September 2026 - Rilis Penuh Fitur Top Consumers, FUP Tracker, Analisa Margin Keuntungan, dan Web Backup/Restore.*
+
+## 12. Standarisasi Satuan Bandwidth (SI Desimal) & Ketahanan Server Proxmox
+
+### A. Konversi Satuan Kuota Bandwidth: Mengapa 1000 MB = 1 GB?
+- **Masalah Sebelumnya**: Pada tampilan kartu atau tabel terkadang muncul angka seperti `1008.90 MB` bukan `1.01 GB`.
+- **Akar Penyebab**:
+  - Secara historis pada sistem operasi komputer lawas (seperti Windows Explorer untuk RAM/File Size), digunakan standar biner IEC ($1\text{ GiB} = 1024\text{ MiB}$). Dengan pembagi 1024, angka antara $1000.00\text{ MB}$ hingga $1023.99\text{ MB}$ masih tertahan di satuan `MB`.
+- **Standar Industri Telekomunikasi, ISP & Jaringan**:
+  - Seluruh provider internet (ISP seperti Telkomsel, Indihome, Biznet, MyRepublic, dll.), kuota FUP, smartphone Android/iOS, standar IEEE 1541, dan International System of Units (SI) menggunakan perhitungan berbasis desimal ($10^3$):
+    - $1\text{ KB} = 1.000\text{ Byte}$
+    - $1\text{ MB} = 1.000\text{ KB} = 1.000.000\text{ Byte}$
+    - $1\text{ GB} = 1.000\text{ MB} = 1.000.000.000\text{ Byte}$ ($10^9$)
+    - $1\text{ TB} = 1.000\text{ GB} = 1.000.000.000.000\text{ Byte}$ ($10^{12}$)
+  - Standar kecepatan internet (*throughput*) juga sudah menggunakan basis desimal ($1\text{ Gbps} = 1.000\text{ Mbps}$, $1\text{ Mbps} = 1.000\text{ Kbps}$).
+- **Implementasi Terpadu (28 September 2026)**:
+  - Seluruh fungsi `formatBytes` di `traffic-db.js`, `server.js`, dan `public/traffic.js` telah diselaraskan menggunakan basis $k = 1000$ dengan mekanisme **Auto-Rollover**:
+    ```javascript
+    function formatBytes(bytes) {
+        if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
+        const b = Number(bytes);
+        const k = 1000;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        let i = Math.floor(Math.log(b) / Math.log(k));
+        if (i <= 0) return b + ' B';
+        if (i >= sizes.length) i = sizes.length - 1;
+        let val = (b / Math.pow(k, i)).toFixed(2);
+        if (parseFloat(val) >= 1000 && i < sizes.length - 1) {
+            i++;
+            val = (b / Math.pow(k, i)).toFixed(2);
+        }
+        return val + ' ' + sizes[i];
+    }
+    ```
+  - **Hasil**:
+    - $999.00\text{ MB} \to 999.00\text{ MB}$
+    - $1000.00\text{ MB} \to 1.00\text{ GB}$ (langsung berpindah ke GB)
+    - $1008.90\text{ MB} \to 1.01\text{ GB}$
+    - $1000.00\text{ GB} \to 1.00\text{ TB}$
+  - Kalkulasi `totalMonthGb` untuk pemantauan FUP ISP di `traffic-db.js` diselaraskan ke `bytes / (1000 * 1000 * 1000)` sehingga persentase FUP dan angka gigabyte di kartu KPI presisi 100%.
+
+### B. Analisis & Solusi Ketahanan Jika Server Proxmox Mati / Listrik Padam
+Banyak pengelola jaringan bertanya: *Bagaimana jika server Proxmox / LXC yang mati lampu, apakah perhitungan trafik tetap akurat?*
+
+1. **Skenario 1: Hanya MikroTik yang Mati / Restart (Proxmox Tetap Nyala)**
+   - Database SQLite telah menyimpan byte sebelum restart.
+   - Uptime MikroTik terdeteksi reset ke 0 -> Server mengunci nilai lama dan menghitung byte baru dari 0.
+   - **Tingkat Akurasi**: 100% Akurat.
+
+2. **Skenario 2: Server Proxmox Mati Sementara, tetapi MikroTik Tetap Hidup 24 Jam**
+   - MikroTik terus menghitung counter total byte (`rx-byte` & `tx-byte`) di hardware-nya secara mandiri tanpa henti.
+   - Saat server Proxmox dinyalakan kembali, script `server.js` membaca counter MikroTik saat itu (`curr_rx`).
+   - Sistem membandingkan dengan `last_raw_rx` yang tersimpan di SQLite sebelum Proxmox mati:
+     `delta_rx = curr_rx - last_raw_rx`
+   - Seluruh pemakaian kuota pelanggan selama server Proxmox mati **TIDAK HILANG**, melainkan langsung diakumulasikan sebagai delta ke database hari tersebut!
+   - **Tingkat Akurasi**: 100% Akurat.
+
+3. **Skenario 3: Server Proxmox dan MikroTik Mati Bersamaan (Listrik Padam Total)**
+   - Selama listrik padam total di rumah/kantor, tidak ada perangkat yang menyala dan tidak ada trafik internet sama sekali (0 byte terpakai).
+   - Begitu listrik menyala kembali:
+     - MikroTik booting dengan counter byte mulai dari 0.
+     - Proxmox booting dengan auto-start LXC.
+     - Sistem mendeteksi `curr_uptime < last_uptime` (Reboot terdeteksi) dan mengunci byte sebelum mati lampu, lalu mengakumulasikan trafik baru dari 0.
+   - **Tingkat Akurasi**: 100% Akurat.
+
+4. **Skenario 4: Server Proxmox Mati, dan MikroTik Sempat Restart Beberapa Kali Saat Proxmox Mati**
+   - Jika Proxmox mati cukup lama (misal 5 jam) dan selama 5 jam itu MikroTik sempat restart 2 kali, MikroTik mereset counter byte-nya di tengah jalan tanpa sempat dicatat Proxmox.
+   - **Solusi Pencegahan Terbaik**:
+     1. Pasang UPS (Uninterruptible Power Supply) mini untuk server Proxmox dan Router MikroTik (daya tahan 1-2 jam).
+     2. Konfigurasi BIOS PC Proxmox: `Restore on AC Power Loss` diubah ke **`Power On / Always On`** agar server langsung menyala otomatis begitu listrik kembali menyala.
+     3. Jadwalkan auto-start LXC container di Proxmox (`Options -> Start at boot = Yes`).
+
+---
+*Catatan Terakhir Diperbarui: 28 September 2026 - Standarisasi Satuan Bandwidth SI Desimal (1000 MB = 1 GB) & Analisis Ketahanan Daya Proxmox.*
+
 

@@ -126,10 +126,17 @@ document.addEventListener('DOMContentLoaded', () => {
     function formatBytes(bytes) {
         if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
         const b = Number(bytes);
-        const k = 1024;
+        const k = 1000;
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-        const i = Math.floor(Math.log(b) / Math.log(k));
-        return (b / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+        let i = Math.floor(Math.log(b) / Math.log(k));
+        if (i <= 0) return b + ' B';
+        if (i >= sizes.length) i = sizes.length - 1;
+        let val = (b / Math.pow(k, i)).toFixed(2);
+        if (parseFloat(val) >= 1000 && i < sizes.length - 1) {
+            i++;
+            val = (b / Math.pow(k, i)).toFixed(2);
+        }
+        return val + ' ' + sizes[i];
     }
 
     // Format Bits Per Second Helper
