@@ -346,7 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Hanya tampilkan baris spinner jika tabel kosong atau ada perpindahan filter
         if (topUsersTableBody.children.length === 0 || isFilterChange) {
-            topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-500"><div class="flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-cyan-400"></i><span>Memuat data penggunaan kuota user...</span></div></td></tr>`;
+            topUsersTableBody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-gray-500"><div class="flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-cyan-400"></i><span>Memuat data penggunaan kuota user...</span></div></td></tr>`;
             if (window.lucide) lucide.createIcons();
         }
 
@@ -366,7 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const emptyMsg = currentTopUsersFilter === 'active_radius'
                     ? 'Saat ini tidak ada user RADIUS / voucher yang sedang aktif online.'
                     : 'Belum ada aktivitas penggunaan kuota yang tercatat.';
-                topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-400">${emptyMsg}</td></tr>`;
+                topUsersTableBody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-gray-400">${emptyMsg}</td></tr>`;
                 return;
             }
 
@@ -397,8 +397,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dlGbStr = (u.bytesOut / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
                 const ulGbStr = (u.bytesIn / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
 
+                const safeKey = u.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+                const rxRateBps = u.rxRateBps || 0;
+                const txRateBps = u.txRateBps || 0;
+                const rxRateStr = u.rxRateFormatted || '0 bps';
+                const txRateStr = u.txRateFormatted || '0 bps';
+
+                let speedColor = 'text-gray-300';
+                if (rxRateBps > 1000000) {
+                    speedColor = 'text-amber-400 font-extrabold';
+                } else if (rxRateBps > 50000) {
+                    speedColor = 'text-emerald-400 font-bold';
+                }
+
                 html += `
-                    <tr class="hover:bg-gray-800/40 transition">
+                    <tr class="hover:bg-gray-800/40 transition" id="top-user-row-${safeKey}" data-user="${u.name.toLowerCase()}" data-safe-key="${safeKey}">
                         <td class="py-3 px-4 text-center">${rankBadge}</td>
                         <td class="py-3 px-4">
                             <div class="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
@@ -417,18 +430,34 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="text-[11px] text-gray-400">Durasi: ${u.uptime}</div>
                         </td>
                         <td class="py-3 px-4 text-right">
-                            <div class="text-cyan-400 font-bold text-xs sm:text-sm">${u.bytesOutFormatted}</div>
+                            ${u.isOnline ? `
+                                <div id="speed-dl-${safeKey}" class="font-mono text-xs sm:text-sm flex items-center justify-end gap-1.5 ${speedColor}">
+                                    <span id="speed-dot-${safeKey}" class="w-2 h-2 rounded-full ${rxRateBps > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}"></span>
+                                    <span id="speed-val-${safeKey}">${rxRateStr}</span>
+                                </div>
+                                <div id="speed-sub-${safeKey}" class="text-[10px] text-gray-400 font-mono flex items-center justify-end gap-1.5 mt-0.5">
+                                    <span class="text-cyan-400">↓ ${rxRateStr}</span>
+                                    <span>•</span>
+                                    <span class="text-purple-400">↑ ${txRateStr}</span>
+                                </div>
+                            ` : `
+                                <div class="text-gray-500 text-xs font-mono">-</div>
+                                <div class="text-[10px] text-gray-600">Offline</div>
+                            `}
+                        </td>
+                        <td class="py-3 px-4 text-right">
+                            <div id="dl-bytes-${safeKey}" class="text-cyan-400 font-bold text-xs sm:text-sm">${u.bytesOutFormatted}</div>
                             <div class="text-[10px] text-gray-500 font-mono">${dlGbStr}</div>
                         </td>
                         <td class="py-3 px-4 text-right">
-                            <div class="text-purple-400 font-bold text-xs sm:text-sm">${u.bytesInFormatted}</div>
+                            <div id="ul-bytes-${safeKey}" class="text-purple-400 font-bold text-xs sm:text-sm">${u.bytesInFormatted}</div>
                             <div class="text-[10px] text-gray-500 font-mono">${ulGbStr}</div>
                         </td>
                         <td class="py-3 px-4 text-right">
-                            <div class="text-white font-extrabold text-sm sm:text-base">${totalGbStr}</div>
-                            <div class="text-[10px] text-gray-400 font-mono">${u.totalBytesFormatted}</div>
+                            <div id="total-gb-${safeKey}" class="text-white font-extrabold text-sm sm:text-base">${totalGbStr}</div>
+                            <div id="total-bytes-${safeKey}" class="text-[10px] text-gray-400 font-mono">${u.totalBytesFormatted}</div>
                             <div class="w-24 ml-auto bg-gray-800 h-1.5 rounded-full overflow-hidden mt-1">
-                                <div class="bg-gradient-to-r from-amber-500 to-orange-400 h-full" style="width: ${pct}%"></div>
+                                <div id="pct-bar-${safeKey}" class="bg-gradient-to-r from-amber-500 to-orange-400 h-full" style="width: ${pct}%"></div>
                             </div>
                         </td>
                     </tr>
@@ -439,7 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.lucide) lucide.createIcons();
         } catch (e) {
             console.error('Error loading top users:', e);
-            topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-400">Gagal memuat data pengguna: ${e.message}</td></tr>`;
+            topUsersTableBody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-rose-400">Gagal memuat data pengguna: ${e.message}</td></tr>`;
         } finally {
             if (refreshIcon) {
                 setTimeout(() => refreshIcon.classList.remove('animate-spin'), 400);
@@ -1263,6 +1292,82 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('traffic_live_update', (summary) => {
         if (summary && summary.interface === currentInterface) {
             updateSummaryUI(summary);
+        }
+    });
+
+    // Real-time dynamic bandwidth speed for active users (bergerak dinamis via socket.io)
+    function updateLiveUserSpeeds(hotspotUsers) {
+        if (!topUsersTableBody || !Array.isArray(hotspotUsers)) return;
+        const activeMap = new Map();
+        hotspotUsers.forEach(u => {
+            const key = (u.user || '').trim().toLowerCase();
+            activeMap.set(key, u);
+        });
+
+        const rows = topUsersTableBody.querySelectorAll('tr[data-user]');
+        if (rows.length === 0) return;
+
+        let needsFullRefresh = false;
+
+        rows.forEach(row => {
+            const userKey = row.getAttribute('data-user');
+            const safeKey = row.getAttribute('data-safe-key');
+            const liveUser = activeMap.get(userKey);
+
+            const speedEl = document.getElementById(`speed-val-${safeKey}`);
+            const speedDot = document.getElementById(`speed-dot-${safeKey}`);
+            const speedSub = document.getElementById(`speed-sub-${safeKey}`);
+            const speedParent = document.getElementById(`speed-dl-${safeKey}`);
+
+            if (liveUser) {
+                const rxBps = liveUser.rxRateBps || 0;
+                const txBps = liveUser.txRateBps || 0;
+                const rxStr = liveUser.rxRateFormatted || '0 bps';
+                const txStr = liveUser.txRateFormatted || '0 bps';
+
+                if (speedEl) speedEl.textContent = rxStr;
+                if (speedSub) {
+                    speedSub.innerHTML = `<span class="text-cyan-400">↓ ${rxStr}</span><span>•</span><span class="text-purple-400">↑ ${txStr}</span>`;
+                }
+                if (speedDot) {
+                    speedDot.className = `w-2 h-2 rounded-full ${rxBps > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`;
+                }
+                if (speedParent) {
+                    if (rxBps > 1000000) {
+                        speedParent.className = 'font-mono text-xs sm:text-sm flex items-center justify-end gap-1.5 text-amber-400 font-extrabold';
+                    } else if (rxBps > 50000) {
+                        speedParent.className = 'font-mono text-xs sm:text-sm flex items-center justify-end gap-1.5 text-emerald-400 font-bold';
+                    } else {
+                        speedParent.className = 'font-mono text-xs sm:text-sm flex items-center justify-end gap-1.5 text-gray-300';
+                    }
+                }
+
+                // Update cumulative traffic numbers if available
+                const dlEl = document.getElementById(`dl-bytes-${safeKey}`);
+                const ulEl = document.getElementById(`ul-bytes-${safeKey}`);
+                if (dlEl && liveUser.bytesOutFormatted) dlEl.textContent = liveUser.bytesOutFormatted;
+                if (ulEl && liveUser.bytesInFormatted) ulEl.textContent = liveUser.bytesInFormatted;
+            } else if (currentTopUsersFilter === 'active_radius') {
+                needsFullRefresh = true;
+            } else {
+                if (speedEl) speedEl.textContent = '-';
+                if (speedDot) speedDot.className = 'hidden';
+                if (speedSub) speedSub.textContent = 'Offline';
+            }
+        });
+
+        // Jika ada user aktif yang disconnect atau bertambah, re-fetch tabel secara seamless (tanpa loading spinner)
+        if (currentTopUsersFilter === 'active_radius') {
+            const activeRadiusCount = hotspotUsers.filter(u => u.radius).length;
+            if (needsFullRefresh || activeRadiusCount !== rows.length) {
+                loadTopUsers(false);
+            }
+        }
+    }
+
+    socket.on('users_update', (data) => {
+        if (data && Array.isArray(data.hotspot)) {
+            updateLiveUserSpeeds(data.hotspot);
         }
     });
 

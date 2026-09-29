@@ -96,6 +96,7 @@ let cache = {
 };
 
 let previousHotspotUsersMap = null;
+let userSpeedHistoryMap = new Map();
 
 let umUsersCache = {
     data: [],
@@ -582,24 +583,87 @@ async function runSmartPoll() {
             // 4. Hotspot Active Users & Login/Logout Detection
             try {
                 const hotspot = await client.query('/ip/hotspot/active/print');
+                let queues = [];
+                try {
+                    queues = await client.query('/queue/simple/print');
+                } catch (qe) {}
+
+                const queueMap = new Map();
+                if (Array.isArray(queues)) {
+                    queues.forEach(q => {
+                        if (q.name) queueMap.set(q.name.toLowerCase(), q);
+                        if (q.target) {
+                            const ip = q.target.split('/')[0];
+                            queueMap.set(ip, q);
+                        }
+                    });
+                }
+
                 const validHotspot = (Array.isArray(hotspot) ? hotspot : []).filter(u => {
                     return u && (u['user'] || u['address'] || u['mac-address']) && !u['cpu-load'] && !u['total-memory'];
                 });
-                const currentUsers = validHotspot.map(u => ({
-                    id: u['.id'],
-                    user: u['user'] || 'Unknown',
-                    address: u['address'] || '-',
-                    macAddress: u['mac-address'] || '-',
-                    uptime: u['uptime'] || '-',
-                    idleTime: u['idle-time'] || '-',
-                    bytesIn: parseInt(u['bytes-in'] || '0', 10),
-                    bytesOut: parseInt(u['bytes-out'] || '0', 10),
-                    bytesInFormatted: formatBytes(u['bytes-in']),
-                    bytesOutFormatted: formatBytes(u['bytes-out']),
-                    loginBy: u['login-by'] || '-',
-                    server: u['server'] || '-',
-                    radius: u['radius'] === 'true'
-                }));
+                const nowTime = Date.now();
+                const currentUsers = validHotspot.map(u => {
+                    const bytesIn = parseInt(u['bytes-in'] || '0', 10);
+                    const bytesOut = parseInt(u['bytes-out'] || '0', 10);
+
+                    // Ambil kecepatan real-time dari queue simple MikroTik
+                    const qName = `<hotspot-${(u['user'] || '').toLowerCase()}>`;
+                    const q = queueMap.get(qName) || queueMap.get(u['address']);
+                    let qTxBps = 0; // upload rate
+                    let qRxBps = 0; // download rate
+                    if (q && q.rate) {
+                        const parts = q.rate.split('/');
+                        qTxBps = parseInt(parts[0], 10) || 0;
+                        qRxBps = parseInt(parts[1], 10) || 0;
+                    }
+
+                    // Delta fallback
+                    const userKey = `${u['user']}_${u['mac-address'] || u['address']}`;
+                    const prev = userSpeedHistoryMap.get(userKey);
+                    let deltaRxBps = 0;
+                    let deltaTxBps = 0;
+                    if (prev && prev.time) {
+                        const dt = (nowTime - prev.time) / 1000;
+                        if (dt >= 0.5 && dt <= 10) {
+                            const dRx = Math.max(0, bytesOut - prev.bytesOut);
+                            const dTx = Math.max(0, bytesIn - prev.bytesIn);
+                            deltaRxBps = Math.round((dRx * 8) / dt);
+                            deltaTxBps = Math.round((dTx * 8) / dt);
+                        }
+                    }
+                    userSpeedHistoryMap.set(userKey, {
+                        bytesOut,
+                        bytesIn,
+                        time: nowTime
+                    });
+
+                    const rxRateBps = Math.max(qRxBps, deltaRxBps);
+                    const txRateBps = Math.max(qTxBps, deltaTxBps);
+                    const totalRateBps = rxRateBps + txRateBps;
+
+                    return {
+                        id: u['.id'],
+                        user: u['user'] || 'Unknown',
+                        address: u['address'] || '-',
+                        macAddress: u['mac-address'] || '-',
+                        uptime: u['uptime'] || '-',
+                        idleTime: u['idle-time'] || '-',
+                        bytesIn,
+                        bytesOut,
+                        bytesInFormatted: formatBytes(bytesIn),
+                        bytesOutFormatted: formatBytes(bytesOut),
+                        rxRateBps,
+                        txRateBps,
+                        totalRateBps,
+                        rxRateFormatted: formatBitsPerSecond(rxRateBps),
+                        txRateFormatted: formatBitsPerSecond(txRateBps),
+                        totalRateFormatted: formatBitsPerSecond(totalRateBps),
+                        loginBy: u['login-by'] || '-',
+                        server: u['server'] || '-',
+                        radius: u['radius'] === 'true'
+                    };
+                });
 
                 const currentMap = new Map();
                 currentUsers.forEach(u => {
@@ -1155,6 +1219,12 @@ app.get('/api/traffic/top-users', async (req, res) => {
                     bytesOutFormatted: formatBytes(bytesOut),
                     totalBytesFormatted: formatBytes(totalBytes),
                     totalGb,
+                    rxRateBps: ra.rxRateBps || 0,
+                    txRateBps: ra.txRateBps || 0,
+                    totalRateBps: ra.totalRateBps || 0,
+                    rxRateFormatted: ra.rxRateFormatted || '0 bps',
+                    txRateFormatted: ra.txRateFormatted || '0 bps',
+                    totalRateFormatted: ra.totalRateFormatted || '0 bps',
                     isOnline: true,
                     isRadius: !!ra.radius
                 };
@@ -1192,6 +1262,12 @@ app.get('/api/traffic/top-users', async (req, res) => {
                         bytesOutFormatted: formatBytes(bytesOut),
                         totalBytesFormatted: formatBytes(totalBytes),
                         totalGb,
+                        rxRateBps: active ? (active.rxRateBps || 0) : 0,
+                        txRateBps: active ? (active.txRateBps || 0) : 0,
+                        totalRateBps: active ? (active.totalRateBps || 0) : 0,
+                        rxRateFormatted: active ? (active.rxRateFormatted || '0 bps') : '0 bps',
+                        txRateFormatted: active ? (active.txRateFormatted || '0 bps') : '0 bps',
+                        totalRateFormatted: active ? (active.totalRateFormatted || '0 bps') : '0 bps',
                         isOnline: !!active,
                         isRadius: true
                     });
@@ -1219,6 +1295,12 @@ app.get('/api/traffic/top-users', async (req, res) => {
                             bytesOutFormatted: formatBytes(bytesOut),
                             totalBytesFormatted: formatBytes(totalBytes),
                             totalGb,
+                            rxRateBps: u.rxRateBps || 0,
+                            txRateBps: u.txRateBps || 0,
+                            totalRateBps: u.totalRateBps || 0,
+                            rxRateFormatted: u.rxRateFormatted || '0 bps',
+                            txRateFormatted: u.txRateFormatted || '0 bps',
+                            totalRateFormatted: u.totalRateFormatted || '0 bps',
                             isOnline: true,
                             isRadius: true
                         });
@@ -1251,6 +1333,12 @@ app.get('/api/traffic/top-users', async (req, res) => {
                         bytesOutFormatted: formatBytes(bytesOut),
                         totalBytesFormatted: formatBytes(totalBytes),
                         totalGb,
+                        rxRateBps: active ? (active.rxRateBps || 0) : 0,
+                        txRateBps: active ? (active.txRateBps || 0) : 0,
+                        totalRateBps: active ? (active.totalRateBps || 0) : 0,
+                        rxRateFormatted: active ? (active.rxRateFormatted || '0 bps') : '0 bps',
+                        txRateFormatted: active ? (active.txRateFormatted || '0 bps') : '0 bps',
+                        totalRateFormatted: active ? (active.totalRateFormatted || '0 bps') : '0 bps',
                         isOnline: !!active,
                         isRadius: true
                     });
@@ -1281,6 +1369,12 @@ app.get('/api/traffic/top-users', async (req, res) => {
                                 bytesOutFormatted: formatBytes(bytesOut),
                                 totalBytesFormatted: formatBytes(totalBytes),
                                 totalGb,
+                                rxRateBps: active ? (active.rxRateBps || 0) : 0,
+                                txRateBps: active ? (active.txRateBps || 0) : 0,
+                                totalRateBps: active ? (active.totalRateBps || 0) : 0,
+                                rxRateFormatted: active ? (active.rxRateFormatted || '0 bps') : '0 bps',
+                                txRateFormatted: active ? (active.txRateFormatted || '0 bps') : '0 bps',
+                                totalRateFormatted: active ? (active.totalRateFormatted || '0 bps') : '0 bps',
                                 isOnline: !!active,
                                 isRadius: false
                             });
