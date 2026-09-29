@@ -1206,10 +1206,14 @@ app.get('/api/traffic/top-users', async (req, res) => {
                 const totalBytes = bytesOut + bytesIn;
                 const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
 
+                const uptimeStr = ra.uptime || '0s';
+                const uptimeSec = parseUptimeToSeconds(uptimeStr);
+                const avgRateBps = uptimeSec > 0 ? Math.round((totalBytes * 8) / uptimeSec) : 0;
+
                 return {
                     name: uname,
                     profile: (um && um['actual-profile']) || (ra.radius ? 'Voucher RADIUS' : 'User Lokal'),
-                    uptime: ra.uptime || '0s',
+                    uptime: uptimeStr,
                     ip: ra.address || '-',
                     mac: ra.macAddress || '-',
                     bytesIn,
@@ -1225,6 +1229,8 @@ app.get('/api/traffic/top-users', async (req, res) => {
                     rxRateFormatted: ra.rxRateFormatted || '0 bps',
                     txRateFormatted: ra.txRateFormatted || '0 bps',
                     totalRateFormatted: ra.totalRateFormatted || '0 bps',
+                    avgRateBps,
+                    avgRateFormatted: formatBitsPerSecond(avgRateBps),
                     isOnline: true,
                     isRadius: !!ra.radius
                 };
@@ -1248,11 +1254,14 @@ app.get('/api/traffic/top-users', async (req, res) => {
                     const bytesOut = Math.max(parseInt(u['download-used'] || '0', 10), active ? active.bytesOut : 0);
                     const totalBytes = bytesIn + bytesOut;
                     const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+                    const uptimeStr = active ? active.uptime : (u['uptime-used'] || '0s');
+                    const uptimeSec = parseUptimeToSeconds(uptimeStr);
+                    const avgRateBps = uptimeSec > 0 ? Math.round((totalBytes * 8) / uptimeSec) : 0;
 
                     userList.push({
                         name: uname,
                         profile: u['actual-profile'] || 'Voucher RADIUS',
-                        uptime: active ? active.uptime : (u['uptime-used'] || '0s'),
+                        uptime: uptimeStr,
                         ip: active ? active.address : '-',
                         mac: active ? active.macAddress : '-',
                         bytesIn,
@@ -1268,6 +1277,8 @@ app.get('/api/traffic/top-users', async (req, res) => {
                         rxRateFormatted: active ? (active.rxRateFormatted || '0 bps') : '0 bps',
                         txRateFormatted: active ? (active.txRateFormatted || '0 bps') : '0 bps',
                         totalRateFormatted: active ? (active.totalRateFormatted || '0 bps') : '0 bps',
+                        avgRateBps,
+                        avgRateFormatted: formatBitsPerSecond(avgRateBps),
                         isOnline: !!active,
                         isRadius: true
                     });
@@ -1282,10 +1293,14 @@ app.get('/api/traffic/top-users', async (req, res) => {
                         const bytesOut = u.bytesOut || 0;
                         const totalBytes = bytesIn + bytesOut;
                         const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+                        const uptimeStr = u.uptime || '0s';
+                        const uptimeSec = parseUptimeToSeconds(uptimeStr);
+                        const avgRateBps = uptimeSec > 0 ? Math.round((totalBytes * 8) / uptimeSec) : 0;
+
                         userList.push({
                             name: uname,
                             profile: 'Voucher RADIUS',
-                            uptime: u.uptime || '0s',
+                            uptime: uptimeStr,
                             ip: u.address || '-',
                             mac: u.macAddress || '-',
                             bytesIn,
@@ -1301,6 +1316,8 @@ app.get('/api/traffic/top-users', async (req, res) => {
                             rxRateFormatted: u.rxRateFormatted || '0 bps',
                             txRateFormatted: u.txRateFormatted || '0 bps',
                             totalRateFormatted: u.totalRateFormatted || '0 bps',
+                            avgRateBps,
+                            avgRateFormatted: formatBitsPerSecond(avgRateBps),
                             isOnline: true,
                             isRadius: true
                         });
@@ -1319,11 +1336,14 @@ app.get('/api/traffic/top-users', async (req, res) => {
                     const bytesOut = Math.max(parseInt(u['download-used'] || '0', 10), active ? active.bytesOut : 0);
                     const totalBytes = bytesIn + bytesOut;
                     const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+                    const uptimeStr = active ? active.uptime : (u['uptime-used'] || '0s');
+                    const uptimeSec = parseUptimeToSeconds(uptimeStr);
+                    const avgRateBps = uptimeSec > 0 ? Math.round((totalBytes * 8) / uptimeSec) : 0;
 
                     userList.push({
                         name: uname,
                         profile: u['actual-profile'] || 'Voucher RADIUS',
-                        uptime: active ? active.uptime : (u['uptime-used'] || '0s'),
+                        uptime: uptimeStr,
                         ip: active ? active.address : '-',
                         mac: active ? active.macAddress : '-',
                         bytesIn,
@@ -1339,6 +1359,8 @@ app.get('/api/traffic/top-users', async (req, res) => {
                         rxRateFormatted: active ? (active.rxRateFormatted || '0 bps') : '0 bps',
                         txRateFormatted: active ? (active.txRateFormatted || '0 bps') : '0 bps',
                         totalRateFormatted: active ? (active.totalRateFormatted || '0 bps') : '0 bps',
+                        avgRateBps,
+                        avgRateFormatted: formatBitsPerSecond(avgRateBps),
                         isOnline: !!active,
                         isRadius: true
                     });
@@ -1356,10 +1378,14 @@ app.get('/api/traffic/top-users', async (req, res) => {
                             const bytesOut = Math.max(parseInt(u['bytes-out'] || '0', 10), active ? active.bytesOut : 0);
                             const totalBytes = bytesIn + bytesOut;
                             const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+                            const uptimeStr = active ? active.uptime : (u.uptime || '0s');
+                            const uptimeSec = parseUptimeToSeconds(uptimeStr);
+                            const avgRateBps = uptimeSec > 0 ? Math.round((totalBytes * 8) / uptimeSec) : 0;
+
                             userList.push({
                                 name: uname,
                                 profile: u.profile || 'default',
-                                uptime: active ? active.uptime : (u.uptime || '0s'),
+                                uptime: uptimeStr,
                                 ip: active ? active.address : '-',
                                 mac: active ? active.macAddress : '-',
                                 bytesIn,
@@ -1375,6 +1401,8 @@ app.get('/api/traffic/top-users', async (req, res) => {
                                 rxRateFormatted: active ? (active.rxRateFormatted || '0 bps') : '0 bps',
                                 txRateFormatted: active ? (active.txRateFormatted || '0 bps') : '0 bps',
                                 totalRateFormatted: active ? (active.totalRateFormatted || '0 bps') : '0 bps',
+                                avgRateBps,
+                                avgRateFormatted: formatBitsPerSecond(avgRateBps),
                                 isOnline: !!active,
                                 isRadius: false
                             });

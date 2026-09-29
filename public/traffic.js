@@ -340,6 +340,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnFilterTopVoucher = document.getElementById('btn-filter-top-voucher');
     const btnFilterAll = document.getElementById('btn-filter-all');
 
+    // Helper: Format durasi MikroTik menjadi bahasa Indonesia yang rapi dan mudah dibaca
+    function formatDurationNice(uptimeStr) {
+        if (!uptimeStr || typeof uptimeStr !== 'string') return '-';
+        const s = uptimeStr.trim();
+        if (s === '-' || s === '0s' || s === '0') return '0 Detik';
+
+        const weeksMatch = s.match(/(\d+)\s*w/i);
+        const daysMatch = s.match(/(\d+)\s*d/i);
+        const hoursMatch = s.match(/(\d+)\s*h/i);
+        const minsMatch = s.match(/(\d+)\s*m(?!s)/i);
+        const secsMatch = s.match(/(\d+)\s*s/i);
+
+        let w = weeksMatch ? parseInt(weeksMatch[1], 10) : 0;
+        let d = daysMatch ? parseInt(daysMatch[1], 10) : 0;
+        let h = hoursMatch ? parseInt(hoursMatch[1], 10) : 0;
+        let m = minsMatch ? parseInt(minsMatch[1], 10) : 0;
+        let sec = secsMatch ? parseInt(secsMatch[1], 10) : 0;
+
+        const parts = [];
+        if (w > 0) parts.push(`${w} Minggu`);
+        if (d > 0) parts.push(`${d} Hari`);
+        if (h > 0) parts.push(`${h} Jam`);
+        if (m > 0) parts.push(`${m} Menit`);
+        if (sec > 0 && parts.length < 2) parts.push(`${sec} Detik`);
+
+        if (parts.length === 0) return '0 Detik';
+        return parts.slice(0, 2).join(' ');
+    }
+
     async function loadTopUsers(isFilterChange = false) {
         const refreshIcon = btnRefreshTopUsers ? btnRefreshTopUsers.querySelector('i') : null;
         if (refreshIcon) refreshIcon.classList.add('animate-spin');
@@ -353,9 +382,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             let apiUrl = '/api/traffic/top-users?status=active&filter=radius&limit=0';
             if (currentTopUsersFilter === 'top_radius') {
-                apiUrl = '/api/traffic/top-users?status=all&filter=radius&limit=10';
+                apiUrl = '/api/traffic/top-users?status=all&filter=radius&limit=20';
             } else if (currentTopUsersFilter === 'all') {
-                apiUrl = '/api/traffic/top-users?status=all&filter=all&limit=10';
+                apiUrl = '/api/traffic/top-users?status=all&filter=all&limit=20';
             }
 
             const res = await fetch(apiUrl);
@@ -402,6 +431,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const txRateBps = u.txRateBps || 0;
                 const rxRateStr = u.rxRateFormatted || '0 bps';
                 const txRateStr = u.txRateFormatted || '0 bps';
+                const avgRateStr = u.avgRateFormatted || '0 bps';
+                const durationNice = formatDurationNice(u.uptime);
 
                 let speedColor = 'text-gray-300';
                 if (rxRateBps > 1000000) {
@@ -411,7 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 html += `
-                    <tr class="hover:bg-gray-800/40 transition" id="top-user-row-${safeKey}" data-user="${u.name.toLowerCase()}" data-safe-key="${safeKey}">
+                    <tr class="hover:bg-gray-800/40 transition" id="top-user-row-${safeKey}" data-user="${u.name.toLowerCase()}" data-safe-key="${safeKey}" data-avg-rate="${avgRateStr}">
                         <td class="py-3 px-4 text-center">${rankBadge}</td>
                         <td class="py-3 px-4">
                             <div class="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
@@ -426,8 +457,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                         </td>
                         <td class="py-3 px-4">
-                            <span class="text-xs text-gray-200 font-medium">${u.profile}</span>
-                            <div class="text-[11px] text-gray-400">Durasi: ${u.uptime}</div>
+                            <div class="font-bold text-gray-200 text-xs sm:text-sm truncate max-w-[220px]">${u.profile}</div>
+                            <div class="text-[11px] text-cyan-300 font-medium flex items-center gap-1.5 mt-1 bg-cyan-950/40 border border-cyan-800/40 rounded px-2 py-0.5 w-fit">
+                                <i data-lucide="clock" class="w-3 h-3 text-cyan-400"></i>
+                                <span>${durationNice}</span>
+                                <span class="text-[10px] text-gray-500 font-mono">(${u.uptime})</span>
+                            </div>
                         </td>
                         <td class="py-3 px-4 text-right">
                             ${u.isOnline ? `
@@ -441,8 +476,15 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <span class="text-purple-400">↑ ${txRateStr}</span>
                                 </div>
                             ` : `
-                                <div class="text-gray-500 text-xs font-mono">-</div>
-                                <div class="text-[10px] text-gray-600">Offline</div>
+                                <div id="speed-dl-${safeKey}" class="font-mono text-xs sm:text-sm text-cyan-300 font-semibold flex items-center justify-end gap-1.5">
+                                    <span id="speed-dot-${safeKey}" class="w-1.5 h-1.5 rounded-full bg-cyan-500/60"></span>
+                                    <span id="speed-val-${safeKey}">~${avgRateStr}</span>
+                                </div>
+                                <div id="speed-sub-${safeKey}" class="text-[10px] text-gray-400 font-mono flex items-center justify-end gap-1 mt-0.5">
+                                    <span class="text-gray-400">Rata-rata Sesi</span>
+                                    <span>•</span>
+                                    <span class="text-[9px] bg-gray-800 text-gray-400 px-1 py-0.2 rounded border border-gray-700">Offline</span>
+                                </div>
                             `}
                         </td>
                         <td class="py-3 px-4 text-right">
@@ -507,12 +549,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentTopUsersFilter === 'top_radius') return;
             currentTopUsersFilter = 'top_radius';
             setFilterButtonStyles(btnFilterTopVoucher);
-            if (titleTopUsers) titleTopUsers.textContent = 'Top 10 Pengguna Paling Boros Kuota';
+            if (titleTopUsers) titleTopUsers.textContent = 'Top 20 Pengguna Paling Boros Kuota (Voucher)';
             if (badgeFilter) {
                 badgeFilter.className = 'text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full font-mono font-semibold';
-                badgeFilter.textContent = 'Riwayat Voucher';
+                badgeFilter.textContent = 'Riwayat & Aktif';
             }
-            if (subtitleFilter) subtitleFilter.textContent = 'Daftar voucher RADIUS dengan konsumsi bandwidth terbesar (sepanjang waktu)';
+            if (subtitleFilter) subtitleFilter.textContent = 'Daftar voucher RADIUS dengan konsumsi bandwidth terbesar (kecepatan realtime untuk user aktif & rata-rata sesi untuk offline)';
             loadTopUsers(true);
         });
     }
@@ -522,7 +564,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentTopUsersFilter === 'all') return;
             currentTopUsersFilter = 'all';
             setFilterButtonStyles(btnFilterAll);
-            if (titleTopUsers) titleTopUsers.textContent = 'Top 10 Pengguna Paling Boros Kuota (Semua)';
+            if (titleTopUsers) titleTopUsers.textContent = 'Top 20 Pengguna Paling Boros Kuota (Semua User)';
             if (badgeFilter) {
                 badgeFilter.className = 'text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono font-semibold';
                 badgeFilter.textContent = 'Semua User';
@@ -1350,9 +1392,12 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (currentTopUsersFilter === 'active_radius') {
                 needsFullRefresh = true;
             } else {
-                if (speedEl) speedEl.textContent = '-';
-                if (speedDot) speedDot.className = 'hidden';
-                if (speedSub) speedSub.textContent = 'Offline';
+                // Offline user in historical top list: preserve session average rate
+                const avgRate = row.getAttribute('data-avg-rate') || '0 bps';
+                if (speedEl) speedEl.textContent = `~${avgRate}`;
+                if (speedDot) speedDot.className = 'w-1.5 h-1.5 rounded-full bg-cyan-500/60';
+                if (speedSub) speedSub.innerHTML = `<span class="text-gray-400">Rata-rata Sesi</span><span>•</span><span class="text-[9px] bg-gray-800 text-gray-400 px-1 py-0.2 rounded border border-gray-700">Offline</span>`;
+                if (speedParent) speedParent.className = 'font-mono text-xs sm:text-sm text-cyan-300 font-semibold flex items-center justify-end gap-1.5';
             }
         });
 
