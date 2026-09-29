@@ -396,4 +396,101 @@ Banyak pengelola jaringan bertanya: *Bagaimana jika server Proxmox / LXC yang ma
 ---
 *Catatan Terakhir Diperbarui: 28 September 2026 - Standarisasi Satuan Bandwidth SI Desimal (1000 MB = 1 GB) & Analisis Ketahanan Daya Proxmox.*
 
+---
+
+## 13. Arsitektur Keamanan MikroTik & User Manager (100% Read-Only Safety Manifesto)
+
+### A. Jaminan Keamanan Sistem: Mengapa 100% Aman?
+Banyak pengelola jaringan khawatir saat aplikasi pihak ketiga terhubung ke router MikroTik, terutama ke modul **User Manager**. Sistem ini dirancang dengan prinsip **Zero-Modification (100% Read-Only)**:
+
+1. **Hanya Menggunakan Perintah Pembacaan (`print`)**:
+   - Seluruh komunikasi dengan MikroTik melalui port RouterOS API (8728) hanya memanggil perintah baca:
+     - `/tool/user-manager/user/print` (Membaca username, profil, dan sisa kuota)
+     - `/ip/hotspot/active/print` (Membaca user yang sedang online)
+     - `/queue/simple/print` (Membaca laju bandwidth bps saat itu)
+     - `/ip/hotspot/user/print` (Membaca counter uptime user lokal)
+     - `/system/resource/print` (Membaca beban CPU dan free RAM)
+     - `/interface/monitor-traffic =once=` (Membaca bit per detik WAN)
+   - **TIDAK ADA SATU PUN** pemanggilan perintah berbahaya seperti `add`, `set`, `remove`, `delete`, `reset`, maupun `disable`.
+   - Sistem ini setara dengan membuka Winbox dan melihat layar tanpa menekan tombol "Apply" atau "OK".
+2. **Tidak Menulis ke Penyimpanan Internal (NAND Flash) MikroTik**:
+   - Seluruh database, riwayat trafik, buku kas omset, dan log tersimpan di file database lokal SQLite (`data/vouchers.sqlite` dan `data/traffic.sqlite`) di komputer/server monitoring.
+   - Tidak ada satu byte pun yang ditulis ke memori internal MikroTik, menjaga NAND router tetap awet dan tidak cepat penuh.
+3. **Proteksi Beban CPU Router (Non-Intrusive Stale-While-Revalidate Caching)**:
+   - Data User Manager (1.200+ voucher) tidak dipanggil setiap detik atau setiap kali browser direfresh.
+   - Data disimpan di RAM server monitoring dan hanya disegarkan di background secara santai setiap 3 menit sekali. Beban CPU router tetap dingin dan stabil.
+
+---
+
+## 14. Pemantauan Kuota & Kecepatan Realtime User RADIUS (29 September 2026)
+
+### A. Latar Belakang & Kebutuhan Pengguna
+1. Pengguna menginginkan daftar khusus untuk **User RADIUS / Voucher Hotspot** tanpa tercampur dengan user login lokal router.
+2. Pengguna membutuhkan pemantauan **kecepatan bandwidth realtime per user** (seperti YouTube, download, browsing) yang bergerak dinamis tiap detik dengan satuan jelas (misal `2.5 Mbps`, `↓ ... • ↑ ...`).
+3. Pengguna membutuhkan tampilan durasi pemakaian yang manusiawi dan mudah dibaca (bukan format kaku MikroTik seperti `1d18s`).
+
+### B. Tantangan Teknis 1.244 Voucher User Manager & Solusi Lag (5,2 Detik)
+- **Akar Masalah**:
+  - Router MikroTik memiliki **1.244 voucher** di User Manager.
+  - Perintah RouterOS `/tool/user-manager/user/print` membutuhkan waktu **5,2 detik** untuk mentransfer seluruh baris via TCP API.
+  - Sebelumnya, saat user mengklik tab *"Top Boros Voucher"* atau *"Semua User"*, backend mengeksekusi query tersebut secara sinkron dalam antrean `safeQuery`.
+  - Hal ini menyebabkan:
+    1. Respon API tertunda 5+ detik.
+    2. Background poller (`runSmartPoll`) yang bertugas menghitung kecepatan realtime per 1,5 detik ikut terblokir dalam antrean `queryQueue`.
+    3. Tabel membeku (*freeze*), kecepatan realtime berhenti bergerak, dan perpindahan tab terasa sangat lambat/delay.
+- **Solusi Komprehensif yang Diterapkan**:
+  1. **Background Asynchronous Cache (`server.js`)**:
+     - Fungsi `getUmUsersCached()` diubah menjadi **non-blocking** (0 ms).
+     - Mengembalikan data memori RAM secara instan. Jika data lebih lama dari 3 menit atau kosong, proses pembaruan dipicu di latar belakang (`refreshUmUsers().catch(...)`) tanpa menahan request HTTP.
+     - Endpoint `/api/traffic/top-users` kini merespons dalam waktu **1–2 milidetik**!
+  2. **Instant Client-Side Tab Cache (`public/traffic.js`)**:
+     - Browser menyimpan cache lokal per tab (`topUsersCache = { active_radius, top_radius, all }`).
+     - Saat pengguna berpindah tab yang pernah dibuka, tabel langsung dirender dalam **0 detik (instan tanpa loading spinner)**, kemudian data diperbarui di latar belakang secara mulus.
+  3. **Pemberhentian Request Storm**:
+     - Ditambahkan mutex `isLoadingTopUsers` dan debounce 5 detik pada pembaruan soket `users_update` sehingga tidak memicu banjir fetch berulang yang membuat koneksi lambat.
+
+### C. Solusi Kecepatan Realtime di "Top Boros Voucher"
+- **Masalah Sebelumnya**:
+  - Voucher terboros sepanjang masa di User Manager memiliki kuota 6 GB hingga 9,71 GB (`a9rww8`, `ip3yx5`, dll.) namun statusnya sudah *offline*.
+  - User yang sedang online hari ini berada di kisaran 3,7 GB (`hzxuq9`), 3,3 GB (`csadv5`), 3,0 GB (`cuk7e9`).
+  - Karena sebelumnya disortir murni berdasarkan total kuota, 20 baris pertama seluruhnya terisi voucher offline, sehingga kolom kecepatan hanya menampilkan `~Kbps (Rata-rata Sesi • Offline)` tanpa ada pergerakan realtime.
+- **Solusi yang Diterapkan**:
+  1. **Prioritas User Online di Posisi Teratas**:
+     - Di `server.js`, algoritma pengurutan dimodifikasi:
+       ```javascript
+       userList.sort((a, b) => {
+           if (a.isOnline && !b.isOnline) return -1;
+           if (!a.isOnline && b.isOnline) return 1;
+           return b.totalBytes - a.totalBytes;
+       });
+       ```
+     - Seluruh user yang sedang ONLINE diposisikan di paling atas tabel diurutkan dari kuota terbesar mereka.
+     - Kecepatan realtime mereka langsung muncul aktif bergerak dinamis via Socket.IO setiap 1,5 detik.
+     - Di bawah user online, barulah dicantumkan riwayat voucher offline terbesar sepanjang masa dengan kecepatan rata-rata sesi.
+     - Limit tabel dinaikkan menjadi **Top 30**.
+  2. **Tampilan Kecepatan Dominan & Warna Dinamis**:
+     - Kecepatan utama otomatis menampilkan nilai laju yang dominan (`totalRateFormatted` / `rxRateFormatted`).
+     - Subtitle menampilkan rincian download (`↓`) dan upload (`↑`).
+     - Titik status: **Hijau berkedip (*pulsing green*)** jika sedang aktif streaming/download, dan abu-abu jika idle.
+     - Warna teks:
+       - **Emas / Amber (> 1 Mbps)**: Menandakan user sedang streaming video HD / download intensif.
+       - **Hijau Cerah (> 30 Kbps)**: Aktivitas normal.
+       - **Cyan / Abu-abu**: Idle / offline.
+  3. **Selector Kebal Bentrok**:
+     - Pembaruan baris tabel menggunakan class-based selector (`row.querySelector('.speed-val')`, `.speed-dot`, `.speed-sub`) sehingga kebal jika ada username ganda (multi-login perangkat berbeda) atau karakter unik.
+
+### D. Perapihan Format Durasi Waktu (`formatDurationNice`)
+- **Masalah**: String durasi bawaan MikroTik berbentuk singkatan kaku seperti `1d18s`, `23h3m9s`, `19m11s` yang sering disalahartikan pengguna (misal `1d18s` dikira "1 detik 18 detik").
+- **Implementasi**:
+  Fungsi parser cerdas di `public/traffic.js`:
+  - `1d18s` $\to$ **`1 Hari 18 Detik`**
+  - `23h3m9s` $\to$ **`23 Jam 3 Menit`**
+  - `9h10m4s` $\to$ **`9 Jam 10 Menit`**
+  - `19m11s` $\to$ **`19 Menit 11 Detik`**
+- Ditampilkan dalam badge elegan beraksen cyan dengan ikon jam `🕒`, dilengkapi string asli MikroTik dalam tanda kurung kecil sebagai referensi teknis.
+
+---
+*Catatan Terakhir Diperbarui: 29 September 2026 - Arsitektur Keamanan 100% Read-Only, Instant Tab Switching, dan Mesin Kecepatan Realtime Top Boros.*
+
+
 
