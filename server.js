@@ -110,15 +110,8 @@ let localUsersCache = {
     isFetching: false
 };
 
-async function getUmUsersCached(forceRefresh = false) {
-    const now = Date.now();
-    // Cache valid for 45 detik
-    if (!forceRefresh && umUsersCache.data.length > 0 && (now - umUsersCache.lastFetch) < 45000) {
-        return umUsersCache.data;
-    }
-    if (umUsersCache.isFetching && umUsersCache.data.length > 0) {
-        return umUsersCache.data;
-    }
+async function refreshUmUsers() {
+    if (umUsersCache.isFetching) return;
     umUsersCache.isFetching = true;
     try {
         await safeQuery(async () => {
@@ -134,17 +127,10 @@ async function getUmUsersCached(forceRefresh = false) {
     } finally {
         umUsersCache.isFetching = false;
     }
-    return umUsersCache.data;
 }
 
-async function getLocalUsersCached(forceRefresh = false) {
-    const now = Date.now();
-    if (!forceRefresh && localUsersCache.data.length > 0 && (now - localUsersCache.lastFetch) < 45000) {
-        return localUsersCache.data;
-    }
-    if (localUsersCache.isFetching && localUsersCache.data.length > 0) {
-        return localUsersCache.data;
-    }
+async function refreshLocalUsers() {
+    if (localUsersCache.isFetching) return;
     localUsersCache.isFetching = true;
     try {
         await safeQuery(async () => {
@@ -159,6 +145,22 @@ async function getLocalUsersCached(forceRefresh = false) {
         console.warn('[Cache Local] Notice:', e.message);
     } finally {
         localUsersCache.isFetching = false;
+    }
+}
+
+function getUmUsersCached(forceRefresh = false) {
+    const now = Date.now();
+    // Cache valid 3 menit (180.000 ms), refresh di background tanpa memblokir request API
+    if (forceRefresh || umUsersCache.data.length === 0 || (now - umUsersCache.lastFetch) > 180000) {
+        refreshUmUsers().catch(() => {});
+    }
+    return umUsersCache.data;
+}
+
+function getLocalUsersCached(forceRefresh = false) {
+    const now = Date.now();
+    if (forceRefresh || localUsersCache.data.length === 0 || (now - localUsersCache.lastFetch) > 180000) {
+        refreshLocalUsers().catch(() => {});
     }
     return localUsersCache.data;
 }
@@ -608,8 +610,9 @@ async function runSmartPoll() {
                     const bytesOut = parseInt(u['bytes-out'] || '0', 10);
 
                     // Ambil kecepatan real-time dari queue simple MikroTik
-                    const qName = `<hotspot-${(u['user'] || '').toLowerCase()}>`;
-                    const q = queueMap.get(qName) || queueMap.get(u['address']);
+                    const cleanUser = (u['user'] || '').toLowerCase().trim();
+                    const qName = `<hotspot-${cleanUser}>`;
+                    const q = queueMap.get(qName) || queueMap.get(u['address']) || queueMap.get(cleanUser);
                     let qTxBps = 0; // upload rate
                     let qRxBps = 0; // download rate
                     if (q && q.rate) {
@@ -1413,7 +1416,12 @@ app.get('/api/traffic/top-users', async (req, res) => {
 
             userList = userList
                 .filter(u => u.totalBytes > 0)
-                .sort((a, b) => b.totalBytes - a.totalBytes);
+                .sort((a, b) => {
+                    // Prioritaskan user yang sedang Online terlebih dahulu sehingga kecepatan realtime terlihat bergerak
+                    if (a.isOnline && !b.isOnline) return -1;
+                    if (!a.isOnline && b.isOnline) return 1;
+                    return b.totalBytes - a.totalBytes;
+                });
 
             if (limit > 0) {
                 userList = userList.slice(0, limit);
@@ -1726,7 +1734,12 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`====================================================`);
     startPolling();
     setTimeout(() => {
-        getUmUsersCached().catch(() => {});
-        getLocalUsersCached().catch(() => {});
+        refreshUmUsers().catch(() => {});
+        refreshLocalUsers().catch(() => {});
     }, 2000);
+    // Refresh User Manager dan Local users berkala di background tiap 3 menit
+    setInterval(() => {
+        refreshUmUsers().catch(() => {});
+        refreshLocalUsers().catch(() => {});
+    }, 180000);
 });
