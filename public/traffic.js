@@ -332,6 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. TOP CONSUMERS LEADERBOARD (Poin 1) - Default: SEMUA USER RADIUS AKTIF
     // ==========================================
     let currentTopUsersFilter = 'active_radius'; // 'active_radius' (default), 'top_radius', 'all'
+    let lastTopUsersFetchTime = 0;
     const titleTopUsers = document.getElementById('top-users-title');
     const badgeFilter = document.getElementById('top-users-badge-filter');
     const subtitleFilter = document.getElementById('top-users-subtitle');
@@ -339,9 +340,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnFilterTopVoucher = document.getElementById('btn-filter-top-voucher');
     const btnFilterAll = document.getElementById('btn-filter-all');
 
-    async function loadTopUsers() {
-        topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-gray-500"><div class="flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-cyan-400"></i><span>Memuat data penggunaan kuota user...</span></div></td></tr>`;
-        if (window.lucide) lucide.createIcons();
+    async function loadTopUsers(isFilterChange = false) {
+        const refreshIcon = btnRefreshTopUsers ? btnRefreshTopUsers.querySelector('i') : null;
+        if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+        // Hanya tampilkan baris spinner jika tabel kosong atau ada perpindahan filter
+        if (topUsersTableBody.children.length === 0 || isFilterChange) {
+            topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-500"><div class="flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-cyan-400"></i><span>Memuat data penggunaan kuota user...</span></div></td></tr>`;
+            if (window.lucide) lucide.createIcons();
+        }
 
         try {
             let apiUrl = '/api/traffic/top-users?status=active&filter=radius&limit=0';
@@ -353,6 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const res = await fetch(apiUrl);
             const users = await res.json();
+            lastTopUsersFetchTime = Date.now();
 
             if (!Array.isArray(users) || users.length === 0) {
                 const emptyMsg = currentTopUsersFilter === 'active_radius'
@@ -432,6 +440,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error('Error loading top users:', e);
             topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-400">Gagal memuat data pengguna: ${e.message}</td></tr>`;
+        } finally {
+            if (refreshIcon) {
+                setTimeout(() => refreshIcon.classList.remove('animate-spin'), 400);
+            }
         }
     }
 
@@ -457,7 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 badgeFilter.textContent = 'Semua User Aktif';
             }
             if (subtitleFilter) subtitleFilter.textContent = 'Daftar semua voucher RADIUS yang sedang aktif online beserta total pemakaian kuota (GB)';
-            loadTopUsers();
+            loadTopUsers(true);
         });
     }
 
@@ -472,7 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 badgeFilter.textContent = 'Riwayat Voucher';
             }
             if (subtitleFilter) subtitleFilter.textContent = 'Daftar voucher RADIUS dengan konsumsi bandwidth terbesar (sepanjang waktu)';
-            loadTopUsers();
+            loadTopUsers(true);
         });
     }
 
@@ -487,11 +499,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 badgeFilter.textContent = 'Semua User';
             }
             if (subtitleFilter) subtitleFilter.textContent = 'Daftar semua pengguna (Voucher RADIUS + Akun Lokal) dengan konsumsi bandwidth terbesar';
-            loadTopUsers();
+            loadTopUsers(true);
         });
     }
 
-    btnRefreshTopUsers.addEventListener('click', loadTopUsers);
+    if (btnRefreshTopUsers) {
+        btnRefreshTopUsers.addEventListener('click', () => loadTopUsers(true));
+    }
 
     // ==========================================
     // 3. CHART.JS VISUAL ENGINE
@@ -1252,12 +1266,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Tab visibility handling (prevent lag on return)
+    // Tab visibility handling (prevent lag and avoid blanking tables on return)
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
-            fetchSummary();
-            setTab(currentTab);
-            loadTopUsers();
+            // Keep UI smooth & instant: request fresh summary over Socket.IO without wiping tables
+            if (typeof socket !== 'undefined' && socket && socket.connected) {
+                socket.emit('get_traffic_summary', currentInterface);
+            }
         }
     });
 

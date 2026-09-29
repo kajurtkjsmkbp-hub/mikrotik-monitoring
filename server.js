@@ -97,6 +97,71 @@ let cache = {
 
 let previousHotspotUsersMap = null;
 
+let umUsersCache = {
+    data: [],
+    lastFetch: 0,
+    isFetching: false
+};
+
+let localUsersCache = {
+    data: [],
+    lastFetch: 0,
+    isFetching: false
+};
+
+async function getUmUsersCached(forceRefresh = false) {
+    const now = Date.now();
+    // Cache valid for 45 detik
+    if (!forceRefresh && umUsersCache.data.length > 0 && (now - umUsersCache.lastFetch) < 45000) {
+        return umUsersCache.data;
+    }
+    if (umUsersCache.isFetching && umUsersCache.data.length > 0) {
+        return umUsersCache.data;
+    }
+    umUsersCache.isFetching = true;
+    try {
+        await safeQuery(async () => {
+            const client = await ensureClient();
+            const rawUm = await client.query('/tool/user-manager/user/print');
+            if (Array.isArray(rawUm)) {
+                umUsersCache.data = rawUm.filter(u => u && u.username);
+                umUsersCache.lastFetch = Date.now();
+            }
+        });
+    } catch (e) {
+        console.warn('[Cache UM] Notice:', e.message);
+    } finally {
+        umUsersCache.isFetching = false;
+    }
+    return umUsersCache.data;
+}
+
+async function getLocalUsersCached(forceRefresh = false) {
+    const now = Date.now();
+    if (!forceRefresh && localUsersCache.data.length > 0 && (now - localUsersCache.lastFetch) < 45000) {
+        return localUsersCache.data;
+    }
+    if (localUsersCache.isFetching && localUsersCache.data.length > 0) {
+        return localUsersCache.data;
+    }
+    localUsersCache.isFetching = true;
+    try {
+        await safeQuery(async () => {
+            const client = await ensureClient();
+            const rawLocal = await client.query('/ip/hotspot/user/print');
+            if (Array.isArray(rawLocal)) {
+                localUsersCache.data = rawLocal.filter(u => u && u.name && !u['cpu-load']);
+                localUsersCache.lastFetch = Date.now();
+            }
+        });
+    } catch (e) {
+        console.warn('[Cache Local] Notice:', e.message);
+    } finally {
+        localUsersCache.isFetching = false;
+    }
+    return localUsersCache.data;
+}
+
 let mikrotikClient = null;
 let isQuerying = false;
 const queryQueue = [];
@@ -1045,51 +1110,108 @@ app.get('/api/traffic/top-users', async (req, res) => {
             }
         });
 
-        let userList = [];
-        try {
-            await safeQuery(async () => {
-                const client = await ensureClient();
-
-                // 1. Ambil data dari User Manager (/tool/user-manager/user/print)
-                let umUsers = [];
-                const umUsersMap = new Map();
-                try {
-                    const rawUm = await client.query('/tool/user-manager/user/print');
-                    if (Array.isArray(rawUm)) {
-                        umUsers = rawUm.filter(u => u && u.username);
-                        umUsers.forEach(u => {
-                            umUsersMap.set(u.username.trim().toLowerCase(), u);
-                        });
-                    }
-                } catch (umErr) {
-                    console.log('[Top Users] User Manager query notice:', umErr.message);
+        // Ambil data User Manager dari cache memori (cepat ~0ms)
+        const umUsers = await getUmUsersCached();
+        const umUsersMap = new Map();
+        if (Array.isArray(umUsers)) {
+            umUsers.forEach(u => {
+                if (u && u.username) {
+                    umUsersMap.set(u.username.trim().toLowerCase(), u);
                 }
+            });
+        }
 
-                // 2. Jika statusFilter === 'active' (DEFAULT): Tampilkan SEMUA yang aktif online
-                if (statusFilter === 'active') {
-                    const targetActive = filterType === 'radius'
-                        ? allActive.filter(u => u.radius)
-                        : allActive;
+        let userList = [];
 
-                    userList = targetActive.map(ra => {
-                        const uname = (ra.user || '').trim();
-                        const key = uname.toLowerCase();
-                        const um = umUsersMap.get(key);
-                        const umDl = um ? parseInt(um['download-used'] || '0', 10) : 0;
-                        const umUl = um ? parseInt(um['upload-used'] || '0', 10) : 0;
-                        const actDl = parseInt(ra.bytesOut || '0', 10);
-                        const actUl = parseInt(ra.bytesIn || '0', 10);
-                        const bytesOut = Math.max(umDl, actDl);
-                        const bytesIn = Math.max(umUl, actUl);
-                        const totalBytes = bytesOut + bytesIn;
+        // 1. Jika statusFilter === 'active' (DEFAULT): Tampilkan SEMUA yang aktif online
+        if (statusFilter === 'active') {
+            const targetActive = filterType === 'radius'
+                ? allActive.filter(u => u.radius)
+                : allActive;
+
+            userList = targetActive.map(ra => {
+                const uname = (ra.user || '').trim();
+                const key = uname.toLowerCase();
+                const um = umUsersMap.get(key);
+                const umDl = um ? parseInt(um['download-used'] || '0', 10) : 0;
+                const umUl = um ? parseInt(um['upload-used'] || '0', 10) : 0;
+                const actDl = parseInt(ra.bytesOut || '0', 10);
+                const actUl = parseInt(ra.bytesIn || '0', 10);
+                const bytesOut = Math.max(umDl, actDl);
+                const bytesIn = Math.max(umUl, actUl);
+                const totalBytes = bytesOut + bytesIn;
+                const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+
+                return {
+                    name: uname,
+                    profile: (um && um['actual-profile']) || (ra.radius ? 'Voucher RADIUS' : 'User Lokal'),
+                    uptime: ra.uptime || '0s',
+                    ip: ra.address || '-',
+                    mac: ra.macAddress || '-',
+                    bytesIn,
+                    bytesOut,
+                    totalBytes,
+                    bytesInFormatted: formatBytes(bytesIn),
+                    bytesOutFormatted: formatBytes(bytesOut),
+                    totalBytesFormatted: formatBytes(totalBytes),
+                    totalGb,
+                    isOnline: true,
+                    isRadius: !!ra.radius
+                };
+            })
+            .sort((a, b) => b.totalBytes - a.totalBytes);
+
+            if (limit > 0) {
+                userList = userList.slice(0, limit);
+            }
+        } else {
+            // 2. statusFilter === 'all': Menampilkan riwayat voucher (offline + online)
+            if (filterType === 'radius') {
+                const seenRadius = new Set();
+
+                umUsers.forEach(u => {
+                    const uname = u.username.trim();
+                    const unameKey = uname.toLowerCase();
+                    seenRadius.add(unameKey);
+                    const active = activeRadiusMap.get(unameKey);
+                    const bytesIn = Math.max(parseInt(u['upload-used'] || '0', 10), active ? active.bytesIn : 0);
+                    const bytesOut = Math.max(parseInt(u['download-used'] || '0', 10), active ? active.bytesOut : 0);
+                    const totalBytes = bytesIn + bytesOut;
+                    const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+
+                    userList.push({
+                        name: uname,
+                        profile: u['actual-profile'] || 'Voucher RADIUS',
+                        uptime: active ? active.uptime : (u['uptime-used'] || '0s'),
+                        ip: active ? active.address : '-',
+                        mac: active ? active.macAddress : '-',
+                        bytesIn,
+                        bytesOut,
+                        totalBytes,
+                        bytesInFormatted: formatBytes(bytesIn),
+                        bytesOutFormatted: formatBytes(bytesOut),
+                        totalBytesFormatted: formatBytes(totalBytes),
+                        totalGb,
+                        isOnline: !!active,
+                        isRadius: true
+                    });
+                });
+
+                allActive.filter(u => u.radius).forEach(u => {
+                    const uname = (u.user || '').trim();
+                    const unameKey = uname.toLowerCase();
+                    if (!seenRadius.has(unameKey)) {
+                        seenRadius.add(unameKey);
+                        const bytesIn = u.bytesIn || 0;
+                        const bytesOut = u.bytesOut || 0;
+                        const totalBytes = bytesIn + bytesOut;
                         const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
-
-                        return {
+                        userList.push({
                             name: uname,
-                            profile: (um && um['actual-profile']) || (ra.radius ? 'Voucher RADIUS' : 'User Lokal'),
-                            uptime: ra.uptime || '0s',
-                            ip: ra.address || '-',
-                            mac: ra.macAddress || '-',
+                            profile: 'Voucher RADIUS',
+                            uptime: u.uptime || '0s',
+                            ip: u.address || '-',
+                            mac: u.macAddress || '-',
                             bytesIn,
                             bytesOut,
                             totalBytes,
@@ -1098,92 +1220,58 @@ app.get('/api/traffic/top-users', async (req, res) => {
                             totalBytesFormatted: formatBytes(totalBytes),
                             totalGb,
                             isOnline: true,
-                            isRadius: !!ra.radius
-                        };
-                    })
-                    .sort((a, b) => b.totalBytes - a.totalBytes);
-
-                    if (limit > 0) {
-                        userList = userList.slice(0, limit);
+                            isRadius: true
+                        });
                     }
-                } else {
-                    // statusFilter === 'all': Menampilkan riwayat semua voucher (offline + online)
-                    if (filterType === 'radius') {
-                        const seenRadius = new Set();
+                });
+            } else {
+                // filterType === 'all' && statusFilter === 'all': gabungkan RADIUS dan user lokal
+                const seenAll = new Set();
 
-                        umUsers.forEach(u => {
-                            const uname = u.username.trim();
-                            const unameKey = uname.toLowerCase();
-                            seenRadius.add(unameKey);
-                            const active = activeRadiusMap.get(unameKey);
-                            const bytesIn = Math.max(parseInt(u['upload-used'] || '0', 10), active ? active.bytesIn : 0);
-                            const bytesOut = Math.max(parseInt(u['download-used'] || '0', 10), active ? active.bytesOut : 0);
-                            const totalBytes = bytesIn + bytesOut;
-                            const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+                umUsers.forEach(u => {
+                    const uname = u.username.trim();
+                    const unameKey = uname.toLowerCase();
+                    seenAll.add(unameKey);
+                    const active = activeAllMap.get(unameKey);
+                    const bytesIn = Math.max(parseInt(u['upload-used'] || '0', 10), active ? active.bytesIn : 0);
+                    const bytesOut = Math.max(parseInt(u['download-used'] || '0', 10), active ? active.bytesOut : 0);
+                    const totalBytes = bytesIn + bytesOut;
+                    const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
 
-                            userList.push({
-                                name: uname,
-                                profile: u['actual-profile'] || 'Voucher RADIUS',
-                                uptime: active ? active.uptime : (u['uptime-used'] || '0s'),
-                                ip: active ? active.address : '-',
-                                mac: active ? active.macAddress : '-',
-                                bytesIn,
-                                bytesOut,
-                                totalBytes,
-                                bytesInFormatted: formatBytes(bytesIn),
-                                bytesOutFormatted: formatBytes(bytesOut),
-                                totalBytesFormatted: formatBytes(totalBytes),
-                                totalGb,
-                                isOnline: !!active,
-                                isRadius: true
-                            });
-                        });
+                    userList.push({
+                        name: uname,
+                        profile: u['actual-profile'] || 'Voucher RADIUS',
+                        uptime: active ? active.uptime : (u['uptime-used'] || '0s'),
+                        ip: active ? active.address : '-',
+                        mac: active ? active.macAddress : '-',
+                        bytesIn,
+                        bytesOut,
+                        totalBytes,
+                        bytesInFormatted: formatBytes(bytesIn),
+                        bytesOutFormatted: formatBytes(bytesOut),
+                        totalBytesFormatted: formatBytes(totalBytes),
+                        totalGb,
+                        isOnline: !!active,
+                        isRadius: true
+                    });
+                });
 
-                        allActive.filter(u => u.radius).forEach(u => {
-                            const uname = (u.user || '').trim();
-                            const unameKey = uname.toLowerCase();
-                            if (!seenRadius.has(unameKey)) {
-                                seenRadius.add(unameKey);
-                                const bytesIn = u.bytesIn || 0;
-                                const bytesOut = u.bytesOut || 0;
-                                const totalBytes = bytesIn + bytesOut;
-                                const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
-                                userList.push({
-                                    name: uname,
-                                    profile: 'Voucher RADIUS',
-                                    uptime: u.uptime || '0s',
-                                    ip: u.address || '-',
-                                    mac: u.macAddress || '-',
-                                    bytesIn,
-                                    bytesOut,
-                                    totalBytes,
-                                    bytesInFormatted: formatBytes(bytesIn),
-                                    bytesOutFormatted: formatBytes(bytesOut),
-                                    totalBytesFormatted: formatBytes(totalBytes),
-                                    totalGb,
-                                    isOnline: true,
-                                    isRadius: true
-                                });
-                            }
-                        });
-                    } else {
-                        // filterType === 'all' && statusFilter === 'all': gabungkan RADIUS dan user lokal
-                        const seenAll = new Set();
-
-                        umUsers.forEach(u => {
-                            const uname = u.username.trim();
-                            const unameKey = uname.toLowerCase();
+                const localUsers = await getLocalUsersCached();
+                if (Array.isArray(localUsers)) {
+                    localUsers.forEach(u => {
+                        const uname = u.name.trim();
+                        const unameKey = uname.toLowerCase();
+                        if (!seenAll.has(unameKey)) {
                             seenAll.add(unameKey);
                             const active = activeAllMap.get(unameKey);
-                            const bytesIn = Math.max(parseInt(u['upload-used'] || '0', 10), active ? active.bytesIn : 0);
-                            const bytesOut = Math.max(parseInt(u['download-used'] || '0', 10), active ? active.bytesOut : 0);
+                            const bytesIn = Math.max(parseInt(u['bytes-in'] || '0', 10), active ? active.bytesIn : 0);
+                            const bytesOut = Math.max(parseInt(u['bytes-out'] || '0', 10), active ? active.bytesOut : 0);
                             const totalBytes = bytesIn + bytesOut;
                             const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
-
                             userList.push({
                                 name: uname,
-                                profile: u['actual-profile'] || 'Voucher RADIUS',
-                                uptime: active ? active.uptime : (u['uptime-used'] || '0s'),
+                                profile: u.profile || 'default',
+                                uptime: active ? active.uptime : (u.uptime || '0s'),
                                 ip: active ? active.address : '-',
                                 mac: active ? active.macAddress : '-',
                                 bytesIn,
@@ -1194,79 +1282,16 @@ app.get('/api/traffic/top-users', async (req, res) => {
                                 totalBytesFormatted: formatBytes(totalBytes),
                                 totalGb,
                                 isOnline: !!active,
-                                isRadius: true
+                                isRadius: false
                             });
-                        });
-
-                        try {
-                            const localUsers = await client.query('/ip/hotspot/user/print');
-                            const validLocal = (Array.isArray(localUsers) ? localUsers : []).filter(u => u && u.name && !u['cpu-load']);
-                            validLocal.forEach(u => {
-                                const uname = u.name.trim();
-                                const unameKey = uname.toLowerCase();
-                                if (!seenAll.has(unameKey)) {
-                                seenAll.add(unameKey);
-                                const active = activeAllMap.get(unameKey);
-                                const bytesIn = Math.max(parseInt(u['bytes-in'] || '0', 10), active ? active.bytesIn : 0);
-                                const bytesOut = Math.max(parseInt(u['bytes-out'] || '0', 10), active ? active.bytesOut : 0);
-                                const totalBytes = bytesIn + bytesOut;
-                                const totalGb = (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
-                                userList.push({
-                                    name: uname,
-                                    profile: u.profile || 'default',
-                                    uptime: active ? active.uptime : (u.uptime || '0s'),
-                                    ip: active ? active.address : '-',
-                                    mac: active ? active.macAddress : '-',
-                                    bytesIn,
-                                    bytesOut,
-                                    totalBytes,
-                                    bytesInFormatted: formatBytes(bytesIn),
-                                    bytesOutFormatted: formatBytes(bytesOut),
-                                    totalBytesFormatted: formatBytes(totalBytes),
-                                    totalGb,
-                                    isOnline: !!active,
-                                    isRadius: false
-                                });
-                            }
-                        });
-                    } catch (e) {}
-                    }
-
-                    userList = userList
-                        .filter(u => u.totalBytes > 0)
-                        .sort((a, b) => b.totalBytes - a.totalBytes);
-
-                    if (limit > 0) {
-                        userList = userList.slice(0, limit);
-                    }
+                        }
+                    });
                 }
-            });
-        } catch (e) {
-            // Fallback jika query router gagal, gunakan cache active user
-            const sourceActive = filterType === 'radius'
-                ? allActive.filter(u => u.radius)
-                : allActive;
+            }
 
-            userList = sourceActive.map(u => {
-                const totalBytes = u.bytesIn + u.bytesOut;
-                return {
-                    name: u.user,
-                    profile: u.radius ? 'Voucher RADIUS' : 'hotspot',
-                    uptime: u.uptime,
-                    ip: u.address,
-                    mac: u.macAddress,
-                    bytesIn: u.bytesIn,
-                    bytesOut: u.bytesOut,
-                    totalBytes,
-                    bytesInFormatted: u.bytesInFormatted,
-                    bytesOutFormatted: u.bytesOutFormatted,
-                    totalBytesFormatted: formatBytes(totalBytes),
-                    totalGb: (totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB',
-                    isOnline: true,
-                    isRadius: !!u.radius
-                };
-            })
-            .sort((a, b) => b.totalBytes - a.totalBytes);
+            userList = userList
+                .filter(u => u.totalBytes > 0)
+                .sort((a, b) => b.totalBytes - a.totalBytes);
 
             if (limit > 0) {
                 userList = userList.slice(0, limit);
@@ -1578,4 +1603,8 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(` Connected to MikroTik: ${routerConfig.host}:${routerConfig.port}`);
     console.log(`====================================================`);
     startPolling();
+    setTimeout(() => {
+        getUmUsersCached().catch(() => {});
+        getLocalUsersCached().catch(() => {});
+    }, 2000);
 });
