@@ -6,6 +6,7 @@ let appState = {
     connected: false,
     currentTab: 'tab-hotspot',
     searchQuery: '',
+    hotspotRadiusFilter: 'all',
     logFilter: 'all',
     eventFilter: 'all',
     autoScrollLogs: true,
@@ -449,6 +450,31 @@ el.tableSearch.addEventListener('input', (e) => {
     renderCurrentTable();
 });
 
+// Sub Filter Hotspot (Semua vs Hanya RADIUS vs User Lokal)
+document.querySelectorAll('.hs-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const filter = btn.getAttribute('data-filter') || 'all';
+        appState.hotspotRadiusFilter = filter;
+        document.querySelectorAll('.hs-filter-btn').forEach(b => {
+            b.className = 'hs-filter-btn px-2.5 py-0.5 rounded-md font-medium text-gray-400 hover:text-gray-200 transition';
+        });
+        btn.className = 'hs-filter-btn px-2.5 py-0.5 rounded-md font-semibold text-white bg-blue-600 shadow transition';
+        renderHotspotTable();
+    });
+});
+
+if (el.statHotspotRadius && el.statHotspotRadius.parentElement) {
+    const parent = el.statHotspotRadius.parentElement;
+    parent.classList.add('cursor-pointer', 'hover:text-blue-300', 'transition');
+    parent.title = 'Klik untuk filter hanya menampilkan user RADIUS / Voucher';
+    parent.addEventListener('click', () => {
+        const hsTabBtn = document.querySelector('button[data-tab="tab-hotspot"]');
+        if (hsTabBtn) hsTabBtn.click();
+        const radBtn = document.querySelector('.hs-filter-btn[data-filter="radius"]');
+        if (radBtn) radBtn.click();
+    });
+}
+
 // Audio toggle
 el.btnAudioToggle.addEventListener('click', () => {
     appState.audioAlerts = !appState.audioAlerts;
@@ -839,7 +865,10 @@ function renderIdleBadge(idleStr) {
 
 function renderHotspotTable() {
     const q = appState.searchQuery;
+    const filter = appState.hotspotRadiusFilter || 'all';
     const users = (latestData.hotspot || []).filter(u => {
+        if (filter === 'radius' && !u.radius) return false;
+        if (filter === 'local' && u.radius) return false;
         if (!q) return true;
         return (
             (u.user && u.user.toLowerCase().includes(q)) ||
@@ -847,6 +876,9 @@ function renderHotspotTable() {
             (u.macAddress && u.macAddress.toLowerCase().includes(q))
         );
     });
+
+    const countEl = document.getElementById('hs-filter-count');
+    if (countEl) countEl.textContent = users.length;
 
     if (users.length === 0) {
         el.hotspotTableBody.innerHTML = '';

@@ -434,16 +434,29 @@
                     </div>
                     <div>
                         <h3 class="font-bold text-white text-base flex items-center gap-2">
-                            <span>Top 10 Pengguna Paling Boros Kuota</span>
-                            <span class="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">Leaderboard</span>
+                            <span id="top-users-title">Penggunaan Kuota User RADIUS Aktif</span>
+                            <span id="top-users-badge-filter" class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-semibold">Semua User Aktif</span>
                         </h3>
-                        <p class="text-xs text-gray-400 mt-0.5">Daftar pelanggan & voucher yang mengonsumsi bandwidth terbesar</p>
+                        <p id="top-users-subtitle" class="text-xs text-gray-400 mt-0.5">Daftar semua voucher RADIUS yang sedang aktif online beserta total pemakaian kuota (GB)</p>
                     </div>
                 </div>
-                <button id="btn-refresh-top-users" class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-750 text-gray-300 hover:text-white border border-gray-700 text-xs flex items-center gap-1.5 self-start sm:self-auto transition">
-                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-cyan-400"></i>
-                    <span>Segarkan Top User</span>
-                </button>
+                <div class="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                    <div class="inline-flex rounded-lg bg-gray-800 p-0.5 border border-gray-700 text-xs shadow-inner">
+                        <button id="btn-filter-active" class="px-3 py-1 rounded-md font-semibold text-xs transition bg-blue-600 text-white shadow">
+                            Semua Aktif (RADIUS)
+                        </button>
+                        <button id="btn-filter-top-voucher" class="px-3 py-1 rounded-md font-medium text-xs text-gray-400 hover:text-gray-200 transition">
+                            Top Boros Voucher
+                        </button>
+                        <button id="btn-filter-all" class="px-3 py-1 rounded-md font-medium text-xs text-gray-400 hover:text-gray-200 transition">
+                            Semua User
+                        </button>
+                    </div>
+                    <button id="btn-refresh-top-users" class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-750 text-gray-300 hover:text-white border border-gray-700 text-xs flex items-center gap-1.5 transition">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-cyan-400"></i>
+                        <span>Segarkan</span>
+                    </button>
+                </div>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse text-xs sm:text-sm">
@@ -454,7 +467,7 @@
                             <th class="py-3 px-4 font-semibold">Profil & Durasi</th>
                             <th class="py-3 px-4 font-semibold text-right">Download (RX)</th>
                             <th class="py-3 px-4 font-semibold text-right">Upload (TX)</th>
-                            <th class="py-3 px-4 font-semibold text-right">Total Kuota</th>
+                            <th class="py-3 px-4 font-semibold text-right">Total Kuota (GB)</th>
                         </tr>
                     </thead>
                     <tbody id="top-users-table-body" class="divide-y divide-gray-800/60 font-mono text-gray-300">

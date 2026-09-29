@@ -329,19 +329,41 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // 2. TOP CONSUMERS LEADERBOARD (Poin 1)
+    // 2. TOP CONSUMERS LEADERBOARD (Poin 1) - Default: SEMUA USER RADIUS AKTIF
     // ==========================================
+    let currentTopUsersFilter = 'active_radius'; // 'active_radius' (default), 'top_radius', 'all'
+    const titleTopUsers = document.getElementById('top-users-title');
+    const badgeFilter = document.getElementById('top-users-badge-filter');
+    const subtitleFilter = document.getElementById('top-users-subtitle');
+    const btnFilterActive = document.getElementById('btn-filter-active');
+    const btnFilterTopVoucher = document.getElementById('btn-filter-top-voucher');
+    const btnFilterAll = document.getElementById('btn-filter-all');
+
     async function loadTopUsers() {
-        topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-gray-500"><div class="flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-cyan-400"></i><span>Memuat top konsumen bandwidth...</span></div></td></tr>`;
+        topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-gray-500"><div class="flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-cyan-400"></i><span>Memuat data penggunaan kuota user...</span></div></td></tr>`;
         if (window.lucide) lucide.createIcons();
 
         try {
-            const res = await fetch('/api/traffic/top-users?limit=10');
+            let apiUrl = '/api/traffic/top-users?status=active&filter=radius&limit=0';
+            if (currentTopUsersFilter === 'top_radius') {
+                apiUrl = '/api/traffic/top-users?status=all&filter=radius&limit=10';
+            } else if (currentTopUsersFilter === 'all') {
+                apiUrl = '/api/traffic/top-users?status=all&filter=all&limit=10';
+            }
+
+            const res = await fetch(apiUrl);
             const users = await res.json();
 
             if (!Array.isArray(users) || users.length === 0) {
-                topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-gray-400">Belum ada aktivitas user hotspot yang tercatat hari ini.</td></tr>`;
+                const emptyMsg = currentTopUsersFilter === 'active_radius'
+                    ? 'Saat ini tidak ada user RADIUS / voucher yang sedang aktif online.'
+                    : 'Belum ada aktivitas penggunaan kuota yang tercatat.';
+                topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-400">${emptyMsg}</td></tr>`;
                 return;
+            }
+
+            if (currentTopUsersFilter === 'active_radius' && badgeFilter) {
+                badgeFilter.textContent = `${users.length} User Online`;
             }
 
             const maxVol = Math.max(...users.map(u => u.totalBytes), 1);
@@ -358,7 +380,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? `<span class="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-medium"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Online</span>`
                     : `<span class="text-[11px] text-gray-500">Offline</span>`;
 
+                const radiusBadge = u.isRadius 
+                    ? `<span class="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 font-sans font-semibold">RADIUS</span>`
+                    : `<span class="text-[9px] bg-gray-700/50 text-gray-400 px-1.5 py-0.5 rounded border border-gray-600 font-sans">Lokal</span>`;
+
                 const pct = Math.min(100, Math.round((u.totalBytes / maxVol) * 100));
+                const totalGbStr = u.totalGb || ((u.totalBytes / (1000 * 1000 * 1000)).toFixed(2) + ' GB');
+                const dlGbStr = (u.bytesOut / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
+                const ulGbStr = (u.bytesIn / (1000 * 1000 * 1000)).toFixed(2) + ' GB';
 
                 html += `
                     <tr class="hover:bg-gray-800/40 transition">
@@ -366,27 +395,31 @@ document.addEventListener('DOMContentLoaded', () => {
                         <td class="py-3 px-4">
                             <div class="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
                                 <span>${u.name}</span>
+                                ${radiusBadge}
                                 ${onlineDot}
                             </div>
-                            <div class="text-[11px] text-gray-500 flex items-center gap-2">
+                            <div class="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
                                 <span>IP: ${u.ip}</span>
                                 <span>•</span>
                                 <span>MAC: ${u.mac}</span>
                             </div>
                         </td>
                         <td class="py-3 px-4">
-                            <span class="text-xs text-gray-300 font-medium">${u.profile}</span>
-                            <div class="text-[11px] text-gray-500">Aktif: ${u.uptime}</div>
+                            <span class="text-xs text-gray-200 font-medium">${u.profile}</span>
+                            <div class="text-[11px] text-gray-400">Durasi: ${u.uptime}</div>
                         </td>
                         <td class="py-3 px-4 text-right">
-                            <span class="text-cyan-400 font-bold">${u.bytesOutFormatted}</span>
+                            <div class="text-cyan-400 font-bold text-xs sm:text-sm">${u.bytesOutFormatted}</div>
+                            <div class="text-[10px] text-gray-500 font-mono">${dlGbStr}</div>
                         </td>
                         <td class="py-3 px-4 text-right">
-                            <span class="text-purple-400 font-bold">${u.bytesInFormatted}</span>
+                            <div class="text-purple-400 font-bold text-xs sm:text-sm">${u.bytesInFormatted}</div>
+                            <div class="text-[10px] text-gray-500 font-mono">${ulGbStr}</div>
                         </td>
                         <td class="py-3 px-4 text-right">
-                            <span class="text-white font-extrabold text-sm">${u.totalBytesFormatted}</span>
-                            <div class="w-20 ml-auto bg-gray-800 h-1.5 rounded-full overflow-hidden mt-1">
+                            <div class="text-white font-extrabold text-sm sm:text-base">${totalGbStr}</div>
+                            <div class="text-[10px] text-gray-400 font-mono">${u.totalBytesFormatted}</div>
+                            <div class="w-24 ml-auto bg-gray-800 h-1.5 rounded-full overflow-hidden mt-1">
                                 <div class="bg-gradient-to-r from-amber-500 to-orange-400 h-full" style="width: ${pct}%"></div>
                             </div>
                         </td>
@@ -398,8 +431,64 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.lucide) lucide.createIcons();
         } catch (e) {
             console.error('Error loading top users:', e);
-            topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-400">Gagal memuat top konsumen: ${e.message}</td></tr>`;
+            topUsersTableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-rose-400">Gagal memuat data pengguna: ${e.message}</td></tr>`;
         }
+    }
+
+    function setFilterButtonStyles(activeBtn) {
+        [btnFilterActive, btnFilterTopVoucher, btnFilterAll].forEach(btn => {
+            if (!btn) return;
+            if (btn === activeBtn) {
+                btn.className = 'px-3 py-1 rounded-md font-semibold text-xs transition bg-blue-600 text-white shadow';
+            } else {
+                btn.className = 'px-3 py-1 rounded-md font-medium text-xs text-gray-400 hover:text-gray-200 transition';
+            }
+        });
+    }
+
+    if (btnFilterActive) {
+        btnFilterActive.addEventListener('click', () => {
+            if (currentTopUsersFilter === 'active_radius') return;
+            currentTopUsersFilter = 'active_radius';
+            setFilterButtonStyles(btnFilterActive);
+            if (titleTopUsers) titleTopUsers.textContent = 'Penggunaan Kuota User RADIUS Aktif';
+            if (badgeFilter) {
+                badgeFilter.className = 'text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-semibold';
+                badgeFilter.textContent = 'Semua User Aktif';
+            }
+            if (subtitleFilter) subtitleFilter.textContent = 'Daftar semua voucher RADIUS yang sedang aktif online beserta total pemakaian kuota (GB)';
+            loadTopUsers();
+        });
+    }
+
+    if (btnFilterTopVoucher) {
+        btnFilterTopVoucher.addEventListener('click', () => {
+            if (currentTopUsersFilter === 'top_radius') return;
+            currentTopUsersFilter = 'top_radius';
+            setFilterButtonStyles(btnFilterTopVoucher);
+            if (titleTopUsers) titleTopUsers.textContent = 'Top 10 Pengguna Paling Boros Kuota';
+            if (badgeFilter) {
+                badgeFilter.className = 'text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full font-mono font-semibold';
+                badgeFilter.textContent = 'Riwayat Voucher';
+            }
+            if (subtitleFilter) subtitleFilter.textContent = 'Daftar voucher RADIUS dengan konsumsi bandwidth terbesar (sepanjang waktu)';
+            loadTopUsers();
+        });
+    }
+
+    if (btnFilterAll) {
+        btnFilterAll.addEventListener('click', () => {
+            if (currentTopUsersFilter === 'all') return;
+            currentTopUsersFilter = 'all';
+            setFilterButtonStyles(btnFilterAll);
+            if (titleTopUsers) titleTopUsers.textContent = 'Top 10 Pengguna Paling Boros Kuota (Semua)';
+            if (badgeFilter) {
+                badgeFilter.className = 'text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono font-semibold';
+                badgeFilter.textContent = 'Semua User';
+            }
+            if (subtitleFilter) subtitleFilter.textContent = 'Daftar semua pengguna (Voucher RADIUS + Akun Lokal) dengan konsumsi bandwidth terbesar';
+            loadTopUsers();
+        });
     }
 
     btnRefreshTopUsers.addEventListener('click', loadTopUsers);

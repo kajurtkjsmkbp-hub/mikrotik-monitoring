@@ -344,6 +344,20 @@
 
             <!-- Tab 1: Hotspot Active Users -->
             <div id="tab-hotspot" class="tab-content block">
+                <!-- Sub Filter RADIUS vs Lokal -->
+                <div class="flex flex-wrap items-center justify-between px-4 py-2 bg-gray-850/60 border-b border-gray-800/80 text-xs gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-gray-400 text-[11px] font-medium">Filter Tipe:</span>
+                        <div class="inline-flex rounded-lg bg-gray-900 p-0.5 border border-gray-700/80 text-[11px]" id="hotspot-type-filters">
+                            <button data-filter="all" class="hs-filter-btn px-2.5 py-0.5 rounded-md font-semibold text-white bg-blue-600 shadow transition">Semua</button>
+                            <button data-filter="radius" class="hs-filter-btn px-2.5 py-0.5 rounded-md font-medium text-gray-400 hover:text-gray-200 transition">Hanya RADIUS / Voucher</button>
+                            <button data-filter="local" class="hs-filter-btn px-2.5 py-0.5 rounded-md font-medium text-gray-400 hover:text-gray-200 transition">User Lokal</button>
+                        </div>
+                    </div>
+                    <div class="text-[11px] text-gray-400 font-sans">
+                        Menampilkan: <span id="hs-filter-count" class="font-bold text-white">0</span> user aktif
+                    </div>
+                </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-xs text-gray-300">
                         <thead class="bg-gray-850 text-gray-400 uppercase text-[11px] font-semibold border-b border-gray-800">
