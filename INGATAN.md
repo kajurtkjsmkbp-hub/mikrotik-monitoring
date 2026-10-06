@@ -520,7 +520,48 @@ Pada kartu "Analisa Margin & Efisiensi Bandwidth" di `/traffic.html`, meskipun B
    File database `data/*.sqlite*` dan `.env` 100% diproteksi oleh `.gitignore`. Pembaruan kode (`git pull`) di server Proxmox **TIDAK AKAN PERNAH** menimpa data penjualan maupun trafik yang ada di server Proxmox.
 
 ---
-*Catatan Terakhir Diperbarui: 6 Oktober 2026 - Perbaikan Sinkronisasi Laba Bersih & Profit Margin ISP vs Voucher.*
+
+## 16. Roadmap & Rekomendasi Fitur Masa Depan (Ide Pengembang & AI)
+
+Berdasarkan analisis kebutuhan operasional jaringan Hotspot RT/RW Net & Kafe, berikut adalah daftar fitur bernilai tinggi yang siap dikembangkan pada fase berikutnya:
+
+### A. Notifikasi & Laporan Otomatis Telegram Bot
+1. **Laporan Tutup Buku Harian (Pukul 23:59 / 00:00 WIB)**:
+   - Mengirim ringkasan otomatis ke chat / grup Telegram pribadi:
+     - Total lembar voucher terjual & nominal omset harian.
+     - Rincian per paket (1K, 2K, 3K).
+     - Total volume kuota trafik internet terpakai (GB/TB).
+     - Sisa stok voucher di database.
+2. **Alert Keadaan Darurat Realtime**:
+   - Peringatan instan saat router MikroTik restart / reboot / mati listrik.
+   - Peringatan saat koneksi WAN internet putus (*RTO / Gateway Unreachable*).
+   - Peringatan saat beban CPU MikroTik mencapai > 90% secara terus-menerus.
+   - Peringatan saat kuota FUP ISP tersisa < 15% atau mendekati batas limit.
+
+### B. Indikator & Peringatan Stok Voucher Menipis (*Low Stock Warning*)
+- Menambahkan badge alert visual di header Dashboard (`/index.html`) dan Menu Voucher (`/voucher.html`) jika stok voucher kategori tertentu (1K, 2K, atau 3K) tersisa kurang dari 5 lembar.
+- Membantu pemilik usaha segera mencetak atau mengimpor voucher Mikhmon baru sebelum kehabisan stok saat jam ramai.
+
+### C. Pemantauan Latensi ISP & Kesehatan Router (*Network Health*)
+1. **Grafik Ping Latensi & Jitter**:
+   - Memantau kestabilan koneksi ke DNS ISP dan Google (`8.8.8.8` / `1.1.1.1`).
+   - Memudahkan identifikasi saat ada keluhan pelanggan "WiFi lemot": apakah karena trafik lokal padat atau memang ISP yang sedang gangguan.
+2. **Sensor Suhu & Voltase RouterOS (`/system/health`)**:
+   - Menampilkan suhu CPU/Board dan tegangan voltase langsung pada router yang mendukung sensor hardware (seperti RB3011, RB4011, CCR, Hex S).
+
+### D. Tombol Aksi Cepat Pengguna Langsung dari Web (*User Quick Actions*)
+- **Kick / Putuskan User**: Tombol aksi di tabel Hotspot Aktif dan Top Users untuk memutus sesi pengguna yang mencurigakan tanpa perlu membuka Winbox.
+- **Bypass / IP-Binding 1-Klik**: Membantu mem-bypass perangkat pelanggan tertentu (misal perangkat kasir, smart TV, atau pelanggan yang kesulitan login).
+
+### E. Heatmap Jam Sibuk (*Peak Hour Traffic Heatmap*)
+- Matriks visual 7 hari $\times$ 24 jam yang menggambarkan kepadatan trafik dan frekuensi aktivasi voucher.
+- Memberikan gambaran jam sibuk (contoh: 19:00 - 22:00 WIB) untuk evaluasi kapasitas bandwidth atau strategi promo harga.
+
+### F. Pencadangan Terjadwal Otomatis (*Scheduled Auto-Backup*)
+- Cron job internal yang mencadangkan file database SQLite (`vouchers.sqlite` & `traffic.sqlite`) secara otomatis setiap pukul 02:00 WIB ke folder arsip bertanggal (`/opt/backups/`) atau langsung dikirimkan ke Telegram sebagai dokumen cadangan.
+
+---
+*Catatan Terakhir Diperbarui: 6 Oktober 2026 - Penambahan Dokumentasi Section 15 (Sinkronisasi Margin Keuangan) & Section 16 (Roadmap & Rekomendasi Fitur).*
 
 
 
