@@ -300,21 +300,26 @@ document.addEventListener('DOMContentLoaded', () => {
             marginCostPerGb.textContent = isp.costPerGbFormatted || 'Rp 0 / GB';
             marginVoucherRevenue.textContent = isp.voucherRevenueFormatted || 'Rp 0';
 
-            const profit = isp.netProfit || 0;
-            marginNetProfit.textContent = isp.netProfitFormatted || 'Rp 0';
-            if (profit >= 0) {
+            const profit = typeof isp.netProfit === 'number' ? isp.netProfit : 0;
+            marginNetProfit.textContent = isp.netProfitFormatted || ((profit >= 0 ? '+Rp ' : '-Rp ') + Math.abs(profit).toLocaleString('id-ID'));
+            if (profit > 0) {
                 marginNetProfit.className = 'text-emerald-400 font-mono text-base block font-black';
-            } else {
+            } else if (profit < 0) {
                 marginNetProfit.className = 'text-rose-400 font-mono text-base block font-black';
+            } else {
+                marginNetProfit.className = 'text-slate-400 font-mono text-base block font-black';
             }
 
-            const roi = isp.profitMarginPct || 0;
-            if (roi >= 0) {
+            const roi = typeof isp.profitMarginPct === 'number' ? isp.profitMarginPct : 0;
+            if (roi > 0) {
                 marginRoiBadge.textContent = `+${roi}% Profit`;
                 marginRoiBadge.className = 'text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono';
-            } else {
+            } else if (roi < 0) {
                 marginRoiBadge.textContent = `${roi}% Defisit`;
                 marginRoiBadge.className = 'text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-mono';
+            } else {
+                marginRoiBadge.textContent = `0% Break Even`;
+                marginRoiBadge.className = 'text-[10px] bg-slate-500/20 text-slate-300 border border-slate-500/30 px-2 py-0.5 rounded-full font-mono';
             }
         }
 

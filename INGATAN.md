@@ -490,7 +490,37 @@ Banyak pengelola jaringan khawatir saat aplikasi pihak ketiga terhubung ke route
 - Ditampilkan dalam badge elegan beraksen cyan dengan ikon jam `🕒`, dilengkapi string asli MikroTik dalam tanda kurung kecil sebagai referensi teknis.
 
 ---
-*Catatan Terakhir Diperbarui: 29 September 2026 - Arsitektur Keamanan 100% Read-Only, Instant Tab Switching, dan Mesin Kecepatan Realtime Top Boros.*
+
+## 15. Perbaikan Sinkronisasi Laba Bersih & Profit Margin (/traffic.html) (6 Oktober 2026)
+
+### A. Gejala Masalah
+Pada kartu "Analisa Margin & Efisiensi Bandwidth" di `/traffic.html`, meskipun Biaya Langganan ISP terisi (contoh: `Rp 555.000`), nilai **Omset Voucher Bulan Ini**, **Estimasi Laba Bersih**, dan badge **Profit** tertahan di angka `Rp 0` dan `+0% Profit` (berwarna hijau).
+
+### B. Akar Masalah
+1. **Ketidaksesuaian Properti Omset**:
+   Di `voucher-db.js`, total nominal omset bulan berjalan disimpan dalam `summary.thisMonth.totalRevenue`. Namun, di `server.js` dipanggil `vSummary?.thisMonth?.revenue`. Akibatnya nilai omset terbaca `undefined` dan default ke `0`.
+2. **Desinkronisasi Socket.IO Real-time (`traffic_live_update`)**:
+   Polling cerdas MikroTik (`runSmartPoll`) setiap 3 detik memancarkan event `traffic_live_update` dengan memanggil `trafficDb.getSummary()` langsung tanpa menggabungkan data keuangan dari `voucherDb`. Akibatnya, properti `isp.netProfit` dan `isp.profitMarginPct` bernilai `undefined`, yang kemudian di browser di-fallback menjadi `0` dan karena `0 >= 0` dianggap hijau (+0% Profit) alih-alih menampilkan status defisit/rugi riil.
+
+### C. Solusi yang Diterapkan
+1. **Helper Sentral Backend (`server.js`)**:
+   Dibuat fungsi terpusat `getEnrichedTrafficSummary(iface)` yang menggabungkan kalkulasi `voucherDb.getSummary().thisMonth.totalRevenue` dengan `trafficDb.getSummary()`. Fungsi ini digunakan secara seragam pada:
+   - Polling live Smart Poll (`runSmartPoll`)
+   - Route HTTP `GET /api/traffic/summary`
+   - Event Socket.IO `initial_state`
+   - Event Socket.IO `get_traffic_summary`
+   - Route HTTP `POST /api/traffic/isp-config`
+2. **Alias Kompatibilitas (`voucher-db.js`)**:
+   Ditambahkan alias `summary.today.revenue`, `summary.thisMonth.revenue`, dan `summary.allTime.revenue` yang merujuk ke `totalRevenue` agar kompatibel ke belakang.
+3. **Penyempurnaan Logika UI (`public/traffic.js`)**:
+   - Jika `netProfit < 0`: Tampilan nominal berwarna merah (`text-rose-400`, misal `-Rp 555.000`) dan badge menampilkan `-X% Defisit` (warna merah).
+   - Jika `netProfit > 0`: Tampilan nominal berwarna hijau (`text-emerald-400`, misal `+Rp 250.000`) dan badge `+X% Profit` (warna hijau).
+   - Jika `netProfit == 0`: Tampilan netral (`text-slate-400`) dan badge `0% Break Even`.
+4. **Jaminan Keamanan Database Proxmox**:
+   File database `data/*.sqlite*` dan `.env` 100% diproteksi oleh `.gitignore`. Pembaruan kode (`git pull`) di server Proxmox **TIDAK AKAN PERNAH** menimpa data penjualan maupun trafik yang ada di server Proxmox.
+
+---
+*Catatan Terakhir Diperbarui: 6 Oktober 2026 - Perbaikan Sinkronisasi Laba Bersih & Profit Margin ISP vs Voucher.*
 
 
 

@@ -515,6 +515,27 @@ function categorizeConnection(proto, dstIp, port, domain, orgInfo = null) {
     };
 }
 
+// CENTRAL HELPER: Get traffic summary enriched with voucher revenue and profit margin
+async function getEnrichedTrafficSummary(iface) {
+    const targetIface = iface || routerConfig.wanInterface || 'ether1-internet';
+    const summary = await trafficDb.getSummary(targetIface);
+    try {
+        const vSummary = await voucherDb.getSummary();
+        const voucherRevenue = vSummary?.thisMonth?.totalRevenue || vSummary?.thisMonth?.revenue || 0;
+        const ispCost = summary.isp?.monthlyCost || 0;
+        const netProfit = voucherRevenue - ispCost;
+
+        if (summary.isp) {
+            summary.isp.voucherRevenue = voucherRevenue;
+            summary.isp.voucherRevenueFormatted = 'Rp ' + Number(voucherRevenue).toLocaleString('id-ID');
+            summary.isp.netProfit = netProfit;
+            summary.isp.netProfitFormatted = (netProfit >= 0 ? '+Rp ' : '-Rp ') + Math.abs(netProfit).toLocaleString('id-ID');
+            summary.isp.profitMarginPct = ispCost > 0 ? Math.round((netProfit / ispCost) * 100) : 0;
+        }
+    } catch (ve) {}
+    return summary;
+}
+
 // SMART TIERED POLLING ENGINE
 let cycleCount = 0;
 let isPolling = false;
@@ -838,7 +859,7 @@ async function runSmartPoll() {
 
                     // Emit live traffic update for active WAN interface
                     const activeIface = routerConfig.wanInterface || 'ether1-internet';
-                    const liveTraffic = await trafficDb.getSummary(activeIface);
+                    const liveTraffic = await getEnrichedTrafficSummary(activeIface);
                     io.emit('traffic_live_update', liveTraffic);
                 } catch (e) {}
             }
@@ -1048,24 +1069,7 @@ app.post('/api/vouchers/sync-router', async (req, res) => {
 app.get('/api/traffic/summary', async (req, res) => {
     try {
         const iface = req.query.interface || routerConfig.wanInterface || 'ether1-internet';
-        const summary = await trafficDb.getSummary(iface);
-
-        // Gabungkan dengan omset voucher bulan ini untuk kalkulasi laba bersih
-        try {
-            const vSummary = await voucherDb.getSummary();
-            const voucherRevenue = vSummary?.thisMonth?.revenue || 0;
-            const ispCost = summary.isp?.monthlyCost || 0;
-            const netProfit = voucherRevenue - ispCost;
-
-            if (summary.isp) {
-                summary.isp.voucherRevenue = voucherRevenue;
-                summary.isp.voucherRevenueFormatted = 'Rp ' + Number(voucherRevenue).toLocaleString('id-ID');
-                summary.isp.netProfit = netProfit;
-                summary.isp.netProfitFormatted = (netProfit >= 0 ? '+Rp ' : '-Rp ') + Math.abs(netProfit).toLocaleString('id-ID');
-                summary.isp.profitMarginPct = ispCost > 0 ? Math.round((netProfit / ispCost) * 100) : 0;
-            }
-        } catch (ve) {}
-
+        const summary = await getEnrichedTrafficSummary(iface);
         res.json(summary);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1448,7 +1452,7 @@ app.post('/api/traffic/isp-config', async (req, res) => {
     try {
         const { fupGb, monthlyCost, ispName } = req.body;
         const updated = await trafficDb.saveIspSettings({ fupGb, monthlyCost, ispName });
-        const summary = await trafficDb.getSummary(routerConfig.wanInterface || 'ether1-internet');
+        const summary = await getEnrichedTrafficSummary(routerConfig.wanInterface || 'ether1-internet');
         io.emit('traffic_live_update', summary);
         res.json({ success: true, config: updated });
     } catch (e) {
@@ -1680,7 +1684,7 @@ io.on('connection', async (socket) => {
         voucherSummary = await voucherDb.getSummary();
     } catch (e) {}
     try {
-        trafficSummary = await trafficDb.getSummary(routerConfig.wanInterface || 'ether1-internet');
+        trafficSummary = await getEnrichedTrafficSummary(routerConfig.wanInterface || 'ether1-internet');
     } catch (e) {}
 
     socket.emit('initial_state', {
@@ -1708,7 +1712,7 @@ io.on('connection', async (socket) => {
 
     socket.on('get_traffic_summary', async (iface) => {
         try {
-            const s = await trafficDb.getSummary(iface || routerConfig.wanInterface || 'ether1-internet');
+            const s = await getEnrichedTrafficSummary(iface || routerConfig.wanInterface || 'ether1-internet');
             socket.emit('traffic_live_update', s);
         } catch (e) {}
     });

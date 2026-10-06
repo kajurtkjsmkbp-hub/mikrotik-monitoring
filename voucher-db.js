@@ -594,6 +594,11 @@ class VoucherSQLiteDatabase {
             summary.allTime.totalRevenue += rev;
         });
 
+        // Alias compatibility for total revenue
+        summary.today.revenue = summary.today.totalRevenue;
+        summary.thisMonth.revenue = summary.thisMonth.totalRevenue;
+        summary.allTime.revenue = summary.allTime.totalRevenue;
+
         return summary;
     }
 
