@@ -519,8 +519,6 @@ Pada kartu "Analisa Margin & Efisiensi Bandwidth" di `/traffic.html`, meskipun B
 4. **Jaminan Keamanan Database Proxmox**:
    File database `data/*.sqlite*` dan `.env` 100% diproteksi oleh `.gitignore`. Pembaruan kode (`git pull`) di server Proxmox **TIDAK AKAN PERNAH** menimpa data penjualan maupun trafik yang ada di server Proxmox.
 
----
-
 ## 16. Roadmap & Rekomendasi Fitur Masa Depan (Ide Pengembang & AI)
 
 Berdasarkan analisis kebutuhan operasional jaringan Hotspot RT/RW Net & Kafe, berikut adalah daftar fitur bernilai tinggi yang siap dikembangkan pada fase berikutnya:
@@ -561,7 +559,53 @@ Berdasarkan analisis kebutuhan operasional jaringan Hotspot RT/RW Net & Kafe, be
 - Cron job internal yang mencadangkan file database SQLite (`vouchers.sqlite` & `traffic.sqlite`) secara otomatis setiap pukul 02:00 WIB ke folder arsip bertanggal (`/opt/backups/`) atau langsung dikirimkan ke Telegram sebagai dokumen cadangan.
 
 ---
-*Catatan Terakhir Diperbarui: 6 Oktober 2026 - Penambahan Dokumentasi Section 15 (Sinkronisasi Margin Keuangan) & Section 16 (Roadmap & Rekomendasi Fitur).*
+
+## 17. Presisi Buku Kas Harian (00:00 WIB) & Pelacakan Histori Aktivasi Voucher (9 Oktober 2026)
+
+### A. Latar Belakang & Masalah
+- **Aturan Bisnis Harian**: Perhitungan omset dan penjualan voucher harus berganti/mulai baru setiap terjadi pergantian tanggal (pukul **24:00 / 00:00 WIB**).
+- **Gejala Masalah**:
+  1. Jika server Proxmox LXC dimatikan malam hari (misal jam 23:00) sementara router MikroTik tetap hidup 24 jam, lalu ada pelanggan login voucher pada jam **23:45 WIB (hari kemarin)**.
+  2. Keesokan paginya (misal pukul 06:30 WIB di hari berbeda), saat Proxmox dinyalakan, sistem monitoring melakukan polling ke MikroTik.
+  3. Kode lama di `checkAndActivateUsers` menggunakan `new Date()` (waktu server saat Proxmox menyala), sehingga voucher yang aktif jam 23:45 kemarin **malah tercatat di hari ini** (hari saat Proxmox hidup).
+  4. Akibatnya, buku kas harian kemarin menjadi kurang, dan buku kas hari ini menjadi bengkak/kotor dengan transaksi kemarin.
+
+### B. Arsitektur Solusi: Hierarki Pelacakan Waktu Aktivasi Pertama (First-Activation Resolver)
+Sistem kini mengimplementasikan engine pelacak waktu aktivasi presisi tinggi (`resolveVoucherActivationTime`) dengan hierarki *Source of Truth*:
+
+1. **Prioritas 1: Sesi User Manager MikroTik (`/tool/user-manager/session`)**:
+   - Router MikroTik menyimpan riwayat sesi RADIUS secara persisten di penyimpanan flash internal NAND.
+   - Sistem mengambil seluruh sesi untuk user tersebut dan mencari **sesi paling awal (*earliest session*)** berdasarkan kolom `'from-time'` (contoh: `'oct/08/2026 23:25:58'`).
+   - String diparsing presisi oleh `parseMikrotikDateTime()` menjadi `Date` object WIB (`Asia/Jakarta`).
+   - Ini memberikan detik riil saat pengguna pertama kali login di hotspot, bahkan jika router sempat restart atau pengguna sudah login berkali-kali (*re-login*).
+2. **Prioritas 2: User Record User Manager (`/tool/user-manager/user`)**:
+   - Jika tabel sesi telah di-prune/dibersihkan, sistem membaca `'last-seen'` dan `'uptime-used'`.
+   - Waktu aktivasi pertama dihitung: `Date(last-seen) - uptimeUsedMs`.
+3. **Prioritas 3: Sesi Hotspot Aktif (`/ip/hotspot/active`)**:
+   - Jika voucher sedang online di router, sistem membaca `u.uptime` (contoh: `10h24m` atau `19h16m`).
+   - Waktu aktivasi pertama dihitung: `now - uptimeMs`.
+   - Contoh: Server Proxmox nyala jam 06:30 (9 Okt), user memiliki uptime 7 jam: `06:30 - 7 jam = 23:30 (8 Okt)` $\to$ voucher otomatis masuk tanggal 8 Okt!
+4. **Prioritas 4: Local Hotspot User (`/ip/hotspot/user`)**:
+   - Membaca `u.uptime` dan `bytes-out` untuk router tanpa User Manager.
+5. **Prioritas 5: Fallback Saat Ini (`now`)**:
+   - Hanya digunakan jika voucher benar-benar baru pertama kali login detik ini tanpa riwayat lama di router.
+
+### C. Mekanisme Jika MikroTik dan Proxmox Padam Bersamaan (Blackout Total)
+- Ketika listrik padam total dan keduanya mati, saat menyala kembali:
+  1. MikroTik me-load database User Manager dari penyimpanan internalnya lengkap dengan sesi `'from-time'`.
+  2. Saat Proxmox boot dan polling ke router, sistem langsung mencocokkan kode voucher dengan `'from-time'` di sesi router.
+  3. Voucher tetap tercatat di tanggal dan jam riil saat user login, bukan saat server menyala.
+
+### D. Fitur Auto-Rectify (Koreksi Otomatis Data Tanggal yang Pernah Salah)
+- Sistem dilengkapi algoritma rekalibrasi cerdas:
+  - Pada setiap siklus sinkronisasi router atau tombol `🔄 Sinkron Router`, sistem memeriksa voucher `used` di database lokal SQLite.
+  - Jika sebuah voucher di database tercatat di tanggal $D_1$ (misal 9 Okt karena boot pagi), namun histori sesi di router membuktikan ia pertama kali aktif pada tanggal $D_0$ (8 Okt pukul 14:19 WIB):
+  - Sistem **SECARA OTOMATIS MENYELARASKAN** `activated_at`, `activated_date`, `activated_time`, dan `activated_day` di database SQLite kembali ke tanggal riil $D_0$!
+  - Rekapitulasi harian dan bulanan langsung diperbarui secara instan.
+
+---
+*Catatan Terakhir Diperbarui: 9 Oktober 2026 - Presisi Pergantian Hari (00:00 WIB), Pelacakan Histori User Manager & Fitur Auto-Rectify.*
+
 
 
 

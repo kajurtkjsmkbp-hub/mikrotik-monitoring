@@ -99,23 +99,145 @@ function getLocalDayName(dateObj = new Date()) {
     return getJakartaParts(dateObj).dayName;
 }
 
-// Parse MikroTik uptime string (e.g. 1w2d3h4m5s, 3h20m, 45s) into milliseconds
+const MIKROTIK_MONTHS = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+};
+
+// Parse MikroTik date string (e.g. 'oct/08/2026 23:25:58', 'oct/08/2026', 'jan/13/2023 00:13:10')
+function parseMikrotikDateTime(str) {
+    if (!str || typeof str !== 'string') return null;
+    const s = str.trim();
+    const match = s.match(/([a-zA-Z]{3})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?/i);
+    if (!match) return null;
+    const mon = MIKROTIK_MONTHS[match[1].toLowerCase()];
+    if (mon === undefined) return null;
+    const day = parseInt(match[2], 10);
+    const year = parseInt(match[3], 10);
+    const h = match[4] ? parseInt(match[4], 10) : 0;
+    const m = match[5] ? parseInt(match[5], 10) : 0;
+    const sec = match[6] ? parseInt(match[6], 10) : 0;
+
+    // Constructed in WIB (+07:00) as configured in MikroTik clock
+    const isoString = `${year}-${String(mon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}+07:00`;
+    const dObj = new Date(isoString);
+    return isNaN(dObj.getTime()) ? null : dObj;
+}
+
+// Parse MikroTik duration string (e.g. 1w2d3h4m5s, 19h16m22s, 3h20m, 45s, or colon 03:45:12, 1d03:45:12) into milliseconds
 function parseMikrotikDuration(str = '') {
-    if (!str || str === '0s') return 0;
+    if (!str || typeof str !== 'string' || str === '0s') return 0;
+    const s = str.trim();
     let totalMs = 0;
-    const weeks = str.match(/(\d+)w/);
-    const days = str.match(/(\d+)d/);
-    const hours = str.match(/(\d+)h/);
-    const mins = str.match(/(\d+)m/);
-    const secs = str.match(/(\d+)s/);
+    const weeks = s.match(/(\d+)\s*w/i);
+    const days = s.match(/(\d+)\s*d(?![\d:])/i);
+    const hours = s.match(/(\d+)\s*h/i);
+    const mins = s.match(/(\d+)\s*m(?!s)/i);
+    const secs = s.match(/(\d+)\s*s/i);
 
-    if (weeks) totalMs += parseInt(weeks[1], 10) * 7 * 24 * 60 * 60 * 1000;
-    if (days) totalMs += parseInt(days[1], 10) * 24 * 60 * 60 * 1000;
-    if (hours) totalMs += parseInt(hours[1], 10) * 60 * 60 * 1000;
-    if (mins) totalMs += parseInt(mins[1], 10) * 60 * 1000;
-    if (secs) totalMs += parseInt(secs[1], 10) * 1000;
+    if (weeks || days || hours || mins || secs) {
+        if (weeks) totalMs += parseInt(weeks[1], 10) * 7 * 86400 * 1000;
+        if (days) totalMs += parseInt(days[1], 10) * 86400 * 1000;
+        if (hours) totalMs += parseInt(hours[1], 10) * 3600 * 1000;
+        if (mins) totalMs += parseInt(mins[1], 10) * 60 * 1000;
+        if (secs) totalMs += parseInt(secs[1], 10) * 1000;
+        return totalMs;
+    }
 
-    return totalMs;
+    // Colon format: [d] hh:mm:ss or [d]d hh:mm:ss
+    const parts = s.split(':');
+    if (parts.length === 3) {
+        let d = 0;
+        let h = parseInt(parts[0], 10) || 0;
+        if (parts[0].includes('d')) {
+            const dSplit = parts[0].split('d');
+            d = parseInt(dSplit[0], 10) || 0;
+            h = parseInt(dSplit[1], 10) || 0;
+        }
+        const m = parseInt(parts[1], 10) || 0;
+        const sec = parseInt(parts[2], 10) || 0;
+        return ((d * 86400) + (h * 3600) + (m * 60) + sec) * 1000;
+    }
+
+    return 0;
+}
+
+// Resolve true historical activation time for a voucher code
+function resolveVoucherActivationTime(code, {
+    activeUsersMap = new Map(),
+    umSessionsMap = new Map(),
+    umUsersMap = new Map(),
+    localUsersMap = new Map(),
+    now = new Date()
+} = {}) {
+    const cleanCode = (code || '').toLowerCase().trim();
+
+    // 1. User Manager Sessions (Earliest recorded session in router flash storage)
+    if (umSessionsMap && umSessionsMap.has(cleanCode)) {
+        const sessEntry = umSessionsMap.get(cleanCode);
+        if (sessEntry && sessEntry.dateObj) {
+            return {
+                dateObj: sessEntry.dateObj,
+                source: 'um_session',
+                ip: sessEntry.session ? sessEntry.session['user-ip'] : null,
+                mac: sessEntry.session ? sessEntry.session['calling-station-id'] : null
+            };
+        }
+    }
+
+    // 2. User Manager User Record (last-seen minus uptime-used)
+    if (umUsersMap && umUsersMap.has(cleanCode)) {
+        const umUser = umUsersMap.get(cleanCode);
+        const lastSeenDate = parseMikrotikDateTime(umUser['last-seen']);
+        const uptimeUsedMs = parseMikrotikDuration(umUser['uptime-used']);
+        if (lastSeenDate) {
+            const firstAct = uptimeUsedMs > 0 ? new Date(lastSeenDate.getTime() - uptimeUsedMs) : lastSeenDate;
+            return {
+                dateObj: firstAct,
+                source: 'um_user',
+                ip: null,
+                mac: null
+            };
+        }
+    }
+
+    // 3. Hotspot Active session uptime (now minus active uptime)
+    if (activeUsersMap && activeUsersMap.has(cleanCode)) {
+        const actUser = activeUsersMap.get(cleanCode);
+        const uptimeMs = parseMikrotikDuration(actUser.uptime);
+        if (uptimeMs > 0) {
+            const firstAct = new Date(now.getTime() - uptimeMs);
+            return {
+                dateObj: firstAct,
+                source: 'active_uptime',
+                ip: actUser.address || actUser.user_address || null,
+                mac: actUser.macAddress || actUser.mac || null
+            };
+        }
+    }
+
+    // 4. Local Hotspot User
+    if (localUsersMap && localUsersMap.has(cleanCode)) {
+        const locUser = localUsersMap.get(cleanCode);
+        const uptimeMs = parseMikrotikDuration(locUser.uptime);
+        if (uptimeMs > 0) {
+            const firstAct = new Date(now.getTime() - uptimeMs);
+            return {
+                dateObj: firstAct,
+                source: 'local_user',
+                ip: null,
+                mac: null
+            };
+        }
+    }
+
+    // 5. Fallback: current time
+    return {
+        dateObj: now,
+        source: 'now',
+        ip: null,
+        mac: null
+    };
 }
 
 class VoucherSQLiteDatabase {
@@ -330,8 +452,8 @@ class VoucherSQLiteDatabase {
         };
     }
 
-    // Check MikroTik active users against SQLite and activate matching vouchers
-    async checkAndActivateUsers(activeHotspotUsers = []) {
+    // Check MikroTik active users against SQLite and activate matching vouchers with historical accuracy
+    async checkAndActivateUsers(activeHotspotUsers = [], options = {}) {
         if (!Array.isArray(activeHotspotUsers) || activeHotspotUsers.length === 0) {
             await this.run(`UPDATE vouchers SET active_now = 0 WHERE active_now = 1`);
             return [];
@@ -349,6 +471,40 @@ class VoucherSQLiteDatabase {
             }
         }
 
+        // Build index of User Manager sessions if available
+        const umSessionsMap = new Map();
+        if (Array.isArray(options.umSessions)) {
+            for (const s of options.umSessions) {
+                const u = (s.user || '').toLowerCase().trim();
+                const dt = parseMikrotikDateTime(s['from-time']);
+                if (u && dt) {
+                    if (!umSessionsMap.has(u) || dt.getTime() < umSessionsMap.get(u).dateObj.getTime()) {
+                        umSessionsMap.set(u, { dateObj: dt, session: s });
+                    }
+                }
+            }
+        }
+
+        // Build index of User Manager users if available
+        const umUsersMap = new Map();
+        if (Array.isArray(options.umUsers)) {
+            for (const u of options.umUsers) {
+                if (u && u.username) {
+                    umUsersMap.set(u.username.toLowerCase().trim(), u);
+                }
+            }
+        }
+
+        // Build index of Local Hotspot users if available
+        const localUsersMap = new Map();
+        if (Array.isArray(options.localUsers)) {
+            for (const u of options.localUsers) {
+                if (u && u.name) {
+                    localUsersMap.set(u.name.toLowerCase().trim(), u);
+                }
+            }
+        }
+
         const activeCodes = Array.from(activeUsersMap.keys());
         const activatedNow = [];
 
@@ -359,6 +515,22 @@ class VoucherSQLiteDatabase {
             const row = await this.get(`SELECT * FROM vouchers WHERE lower(code) = lower(?)`, [code]);
             if (row) {
                 const userObj = activeUsersMap.get(code);
+
+                // Resolve true historical first activation time
+                const actInfo = resolveVoucherActivationTime(code, {
+                    activeUsersMap,
+                    umSessionsMap,
+                    umUsersMap,
+                    localUsersMap,
+                    now
+                });
+                const activationDateObj = actInfo.dateObj;
+                const actIso = activationDateObj.toISOString();
+                const actDate = getLocalDateKey(activationDateObj);
+                const actTime = getLocalTimeString(activationDateObj);
+                const actDay = getLocalDayName(activationDateObj);
+                const userAddress = userObj.address || actInfo.ip || '-';
+                const userMac = userObj.macAddress || actInfo.mac || '-';
 
                 // If currently available (not yet used), ACTIVATE IT!
                 if (row.status === 'available') {
@@ -374,28 +546,46 @@ class VoucherSQLiteDatabase {
                             active_now = 1
                         WHERE id = ?
                     `, [
-                        now.toISOString(), localDate, localTime, dayName,
-                        userObj.address || '-', userObj.macAddress || '-',
+                        actIso, actDate, actTime, actDay,
+                        userAddress, userMac,
                         row.id
                     ]);
 
-                    activatedNow.push({
-                        id: row.id,
-                        code: row.code,
-                        package: row.package_key,
-                        packageName: row.package_name,
-                        price: row.price,
-                        duration: row.duration,
-                        status: 'used',
-                        activatedAt: now.toISOString(),
-                        activatedDate: localDate,
-                        activatedTime: localTime,
-                        activatedDayName: dayName,
-                        userAddress: userObj.address || '-',
-                        userMac: userObj.macAddress || '-',
-                        formattedRevenue: `Rp ${row.price.toLocaleString('id-ID')}`
-                    });
+                    // Only emit live pop-up alert if activation date is TODAY
+                    if (actDate === localDate) {
+                        activatedNow.push({
+                            id: row.id,
+                            code: row.code,
+                            package: row.package_key,
+                            packageName: row.package_name,
+                            price: row.price,
+                            duration: row.duration,
+                            status: 'used',
+                            activatedAt: actIso,
+                            activatedDate: actDate,
+                            activatedTime: actTime,
+                            activatedDayName: actDay,
+                            userAddress,
+                            userMac,
+                            formattedRevenue: `Rp ${row.price.toLocaleString('id-ID')}`
+                        });
+                    } else {
+                        console.log(`[Voucher Sync Historical] Voucher "${row.code}" diaktifkan pada tanggal histori ${actDate} ${actTime} (${actInfo.source}).`);
+                    }
                 } else {
+                    // AUTO-RECTIFY: If already used but mistakenly recorded on today's date when router has earlier session
+                    if (actInfo.source !== 'now' && actInfo.dateObj && row.activated_date !== actDate) {
+                        console.log(`[Auto-Rectify Active] Menyelaraskan tanggal voucher "${row.code}": dari ${row.activated_date} menjadi ${actDate} (${actTime}).`);
+                        await this.run(`
+                            UPDATE vouchers SET
+                                activated_at = ?,
+                                activated_date = ?,
+                                activated_time = ?,
+                                activated_day = ?
+                            WHERE id = ?
+                        `, [actIso, actDate, actTime, actDay, row.id]);
+                    }
+
                     // Update active_now flag and IP/MAC
                     await this.run(`
                         UPDATE vouchers SET 
@@ -403,7 +593,7 @@ class VoucherSQLiteDatabase {
                             user_address = ?,
                             user_mac = ?
                         WHERE id = ?
-                    `, [userObj.address || '-', userObj.macAddress || '-', row.id]);
+                    `, [userAddress, userMac, row.id]);
                 }
             }
         }
@@ -411,47 +601,141 @@ class VoucherSQLiteDatabase {
         return activatedNow;
     }
 
-    // Sync with router hotspot users list (/ip/hotspot/user/print)
-    async syncWithRouterHotspotUsers(routerHotspotUsers = []) {
-        if (!Array.isArray(routerHotspotUsers) || routerHotspotUsers.length === 0) return 0;
-        let syncedCount = 0;
+    // Comprehensive sync with router history (User Manager Sessions, Users, and Hotspot Users)
+    async syncWithRouterComprehensive({ activeUsers = [], umSessions = [], umUsers = [], routerUsers = [] } = {}) {
+        let newlyActivated = 0;
+        let rectifiedCount = 0;
         const now = new Date();
-        const localDate = getLocalDateKey(now);
-        const localTime = getLocalTimeString(now);
-        const dayName = getLocalDayName(now);
 
-        for (const rUser of routerHotspotUsers) {
-            const name = (rUser.name || '').toLowerCase().trim();
-            const uptime = rUser.uptime || '0s';
-            const bytesOut = parseInt(rUser['bytes-out'] || '0', 10);
-            const hasBeenUsed = uptime !== '0s' || bytesOut > 0;
+        // 1. Build Index Maps
+        const activeUsersMap = new Map();
+        if (Array.isArray(activeUsers)) {
+            for (const u of activeUsers) {
+                if (u.user) activeUsersMap.set(u.user.toLowerCase().trim(), u);
+            }
+        }
 
-            if (hasBeenUsed && name.length === 6) {
-                const row = await this.get(`SELECT * FROM vouchers WHERE lower(code) = lower(?) AND status = 'available'`, [name]);
-                if (row) {
-                    // Calculate estimated activation timestamp from MikroTik uptime
-                    const uptimeMs = parseMikrotikDuration(uptime);
-                    const activationDateObj = uptimeMs > 0 ? new Date(now.getTime() - uptimeMs) : now;
-                    const actIso = activationDateObj.toISOString();
-                    const actDate = getLocalDateKey(activationDateObj);
-                    const actTime = getLocalTimeString(activationDateObj);
-                    const actDay = getLocalDayName(activationDateObj);
-
-                    await this.run(`
-                        UPDATE vouchers SET
-                            status = 'used',
-                            activated_at = ?,
-                            activated_date = ?,
-                            activated_time = ?,
-                            activated_day = ?
-                        WHERE id = ?
-                    `, [actIso, actDate, actTime, actDay, row.id]);
-                    syncedCount++;
+        const umSessionsMap = new Map();
+        if (Array.isArray(umSessions)) {
+            for (const s of umSessions) {
+                const u = (s.user || '').toLowerCase().trim();
+                const dt = parseMikrotikDateTime(s['from-time']);
+                if (u && dt) {
+                    if (!umSessionsMap.has(u) || dt.getTime() < umSessionsMap.get(u).dateObj.getTime()) {
+                        umSessionsMap.set(u, { dateObj: dt, session: s });
+                    }
                 }
             }
         }
 
-        return syncedCount;
+        const umUsersMap = new Map();
+        if (Array.isArray(umUsers)) {
+            for (const u of umUsers) {
+                if (u && u.username) {
+                    umUsersMap.set(u.username.toLowerCase().trim(), u);
+                }
+            }
+        }
+
+        const localUsersMap = new Map();
+        if (Array.isArray(routerUsers)) {
+            for (const u of routerUsers) {
+                if (u && u.name) {
+                    localUsersMap.set(u.name.toLowerCase().trim(), u);
+                }
+            }
+        }
+
+        // 2. Check all available vouchers in database
+        const availableRows = await this.all(`SELECT * FROM vouchers WHERE status = 'available'`);
+        for (const row of availableRows) {
+            const code = row.code.toLowerCase().trim();
+            const isOnline = activeUsersMap.has(code);
+            const inSessions = umSessionsMap.has(code);
+            const umUser = umUsersMap.get(code);
+            const inUmUsed = umUser && (parseMikrotikDuration(umUser['uptime-used']) > 0 || parseInt(umUser['download-used'] || '0', 10) > 0);
+            const locUser = localUsersMap.get(code);
+            const inLocUsed = locUser && (locUser.uptime !== '0s' || parseInt(locUser['bytes-out'] || '0', 10) > 0);
+
+            if (isOnline || inSessions || inUmUsed || inLocUsed) {
+                const actInfo = resolveVoucherActivationTime(code, {
+                    activeUsersMap,
+                    umSessionsMap,
+                    umUsersMap,
+                    localUsersMap,
+                    now
+                });
+
+                const actIso = actInfo.dateObj.toISOString();
+                const actDate = getLocalDateKey(actInfo.dateObj);
+                const actTime = getLocalTimeString(actInfo.dateObj);
+                const actDay = getLocalDayName(actInfo.dateObj);
+
+                const activeUserObj = activeUsersMap.get(code);
+                const userAddress = (activeUserObj ? activeUserObj.address : null) || actInfo.ip || '-';
+                const userMac = (activeUserObj ? activeUserObj.macAddress : null) || actInfo.mac || '-';
+
+                await this.run(`
+                    UPDATE vouchers SET
+                        status = 'used',
+                        activated_at = ?,
+                        activated_date = ?,
+                        activated_time = ?,
+                        activated_day = ?,
+                        user_address = ?,
+                        user_mac = ?,
+                        active_now = ?
+                    WHERE id = ?
+                `, [actIso, actDate, actTime, actDay, userAddress, userMac, isOnline ? 1 : 0, row.id]);
+
+                newlyActivated++;
+                console.log(`[Sync Router] Voucher "${row.code}" diaktifkan mundur ke tanggal histori: ${actDate} ${actTime} (${actInfo.source}).`);
+            }
+        }
+
+        // 3. Auto-Rectify: Check recent used vouchers (recorded today or last 60 days) against earliest router session
+        const recentUsed = await this.all(`SELECT * FROM vouchers WHERE status = 'used' AND activated_date IS NOT NULL ORDER BY activated_date DESC LIMIT 300`);
+        for (const row of recentUsed) {
+            const code = row.code.toLowerCase().trim();
+            if (umSessionsMap.has(code)) {
+                const sessData = umSessionsMap.get(code);
+                if (sessData && sessData.dateObj) {
+                    const trueDateKey = getLocalDateKey(sessData.dateObj);
+                    const trueTimeStr = getLocalTimeString(sessData.dateObj);
+                    const trueDayName = getLocalDayName(sessData.dateObj);
+                    const trueIso = sessData.dateObj.toISOString();
+
+                    if (row.activated_date !== trueDateKey) {
+                        console.log(`[Auto-Rectify Comprehensive] Menyelaraskan voucher "${row.code}": ${row.activated_date} -> ${trueDateKey} (${trueTimeStr}).`);
+                        await this.run(`
+                            UPDATE vouchers SET
+                                activated_at = ?,
+                                activated_date = ?,
+                                activated_time = ?,
+                                activated_day = ?
+                            WHERE id = ?
+                        `, [trueIso, trueDateKey, trueTimeStr, trueDayName, row.id]);
+                        rectifiedCount++;
+                    }
+                }
+            }
+        }
+
+        return {
+            newlyActivated,
+            rectifiedCount
+        };
+    }
+
+    // Sync with router hotspot users list (Backward Compatibility Wrapper)
+    async syncWithRouterHotspotUsers(routerHotspotUsers = [], options = {}) {
+        const res = await this.syncWithRouterComprehensive({
+            routerUsers: routerHotspotUsers,
+            umSessions: options.umSessions || [],
+            umUsers: options.umUsers || [],
+            activeUsers: options.activeUsers || []
+        });
+        return res.newlyActivated + res.rectifiedCount;
     }
 
     // Get Overall & Today's Revenue Summary from SQLite

@@ -821,7 +821,10 @@ on(vel.btnSyncRouter, 'click', async () => {
             renderSummary(data.summary);
             await loadDailyHistory();
             await loadVouchers();
-            showToast(`Sinkronisasi selesai! ${data.synced} voucher diperbarui dari router.`, 'success');
+            const msg = (data.rectified && data.rectified > 0)
+                ? `Sinkronisasi selesai! ${data.synced} voucher baru terdeteksi, ${data.rectified} riwayat tanggal diselaraskan.`
+                : `Sinkronisasi selesai! ${data.synced} voucher diperbarui dari router.`;
+            showToast(msg, 'success');
         } else {
             showToast(`Gagal sinkron: ${data.error}`, 'error');
         }

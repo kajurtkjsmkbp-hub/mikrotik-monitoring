@@ -104,11 +104,45 @@ let umUsersCache = {
     isFetching: false
 };
 
+let umSessionsCache = {
+    data: [],
+    lastFetch: 0,
+    isFetching: false
+};
+
 let localUsersCache = {
     data: [],
     lastFetch: 0,
     isFetching: false
 };
+
+async function refreshUmSessions() {
+    if (umSessionsCache.isFetching) return;
+    umSessionsCache.isFetching = true;
+    try {
+        await safeQuery(async () => {
+            const client = await ensureClient();
+            const rawSessions = await client.query('/tool/user-manager/session/print');
+            if (Array.isArray(rawSessions)) {
+                umSessionsCache.data = rawSessions.filter(s => s && s.user);
+                umSessionsCache.lastFetch = Date.now();
+            }
+        });
+    } catch (e) {
+        console.warn('[Cache UM Sessions] Notice:', e.message);
+    } finally {
+        umSessionsCache.isFetching = false;
+    }
+}
+
+function getUmSessionsCached(forceRefresh = false) {
+    const now = Date.now();
+    // Cache valid 1 menit (60.000 ms), refresh di background tanpa memblokir request API
+    if (forceRefresh || umSessionsCache.data.length === 0 || (now - umSessionsCache.lastFetch) > 60000) {
+        refreshUmSessions().catch(() => {});
+    }
+    return umSessionsCache.data;
+}
 
 async function refreshUmUsers() {
     if (umUsersCache.isFetching) return;
@@ -752,9 +786,12 @@ async function runSmartPoll() {
                 previousHotspotUsersMap = currentMap;
                 cache.hotspotUsers = currentUsers;
 
-                // Check and activate vouchers matching active hotspot users
+                // Check and activate vouchers matching active hotspot users (with historical accuracy & auto-rectify)
                 try {
-                    const newlyActivated = await voucherDb.checkAndActivateUsers(currentUsers);
+                    const newlyActivated = await voucherDb.checkAndActivateUsers(currentUsers, {
+                        umSessions: getUmSessionsCached(),
+                        umUsers: getUmUsersCached()
+                    });
                     if (newlyActivated.length > 0) {
                         newlyActivated.forEach(v => {
                             io.emit('voucher_activated', v);
@@ -788,9 +825,14 @@ async function runSmartPoll() {
             if (cycleCount % 6 === 0 || cache.dhcpLeases.length === 0) {
                 try {
                     const hotspotUsers = await client.query('/ip/hotspot/user/print');
-                    const synced = await voucherDb.syncWithRouterHotspotUsers(hotspotUsers);
-                    if (synced > 0) {
-                        console.log(`[Auto-Sync MikroTik] Berhasil mendeteksi & menyinkronkan ${synced} voucher yang aktif dari router.`);
+                    const syncRes = await voucherDb.syncWithRouterComprehensive({
+                        activeUsers: cache.hotspotUsers,
+                        umSessions: getUmSessionsCached(),
+                        umUsers: getUmUsersCached(),
+                        routerUsers: hotspotUsers
+                    });
+                    if (syncRes.newlyActivated > 0 || syncRes.rectifiedCount > 0) {
+                        console.log(`[Auto-Sync MikroTik] Berhasil: ${syncRes.newlyActivated} voucher baru diaktifkan, ${syncRes.rectifiedCount} riwayat tanggal diselaraskan.`);
                         const summary = await voucherDb.getSummary();
                         io.emit('voucher_summary_update', summary);
                     }
@@ -1054,11 +1096,37 @@ app.post('/api/vouchers/sync-router', async (req, res) => {
     try {
         await safeQuery(async () => {
             const client = await ensureClient();
-            const routerUsers = await client.query('/ip/hotspot/user/print');
-            const synced = await voucherDb.syncWithRouterHotspotUsers(routerUsers);
+            let routerUsers = [];
+            let umSessions = [];
+            let umUsers = [];
+            try { routerUsers = await client.query('/ip/hotspot/user/print'); } catch (e) {}
+            try { umSessions = await client.query('/tool/user-manager/session/print'); } catch (e) {}
+            try { umUsers = await client.query('/tool/user-manager/user/print'); } catch (e) {}
+
+            // Update in-memory caches
+            if (Array.isArray(umSessions) && umSessions.length > 0) {
+                umSessionsCache.data = umSessions.filter(s => s && s.user);
+                umSessionsCache.lastFetch = Date.now();
+            }
+            if (Array.isArray(umUsers) && umUsers.length > 0) {
+                umUsersCache.data = umUsers.filter(u => u && u.username);
+                umUsersCache.lastFetch = Date.now();
+            }
+
+            const syncRes = await voucherDb.syncWithRouterComprehensive({
+                activeUsers: cache.hotspotUsers,
+                umSessions,
+                umUsers,
+                routerUsers
+            });
             const summary = await voucherDb.getSummary();
             io.emit('voucher_summary_update', summary);
-            res.json({ success: true, synced, summary });
+            res.json({
+                success: true,
+                synced: syncRes.newlyActivated,
+                rectified: syncRes.rectifiedCount,
+                summary
+            });
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1738,12 +1806,14 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`====================================================`);
     startPolling();
     setTimeout(() => {
+        refreshUmSessions().catch(() => {});
         refreshUmUsers().catch(() => {});
         refreshLocalUsers().catch(() => {});
     }, 2000);
-    // Refresh User Manager dan Local users berkala di background tiap 3 menit
+    // Refresh User Manager Sessions, Users, dan Local users berkala di background tiap 2 menit
     setInterval(() => {
+        refreshUmSessions().catch(() => {});
         refreshUmUsers().catch(() => {});
         refreshLocalUsers().catch(() => {});
-    }, 180000);
+    }, 120000);
 });
