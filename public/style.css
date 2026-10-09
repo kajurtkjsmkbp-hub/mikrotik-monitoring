@@ -82,3 +82,12 @@ tbody tr {
 .badge-smooth {
     transition: all 0.3s ease;
 }
+
+/* Table Sticky Header Solid Fix (Mencegah angka dan teks tertumpuk saat scroll) */
+.sticky-table-header th {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: #111827 !important;
+    border-bottom: 1px solid #374151 !important;
+}

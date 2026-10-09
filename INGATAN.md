@@ -682,19 +682,20 @@ const MIN_HISTORY_YEAR = '2026';
 5. **Omset All-Time (`getSummary`)**:
    Hanya menghitung voucher yang aktif sejak September 2026 ke atas agar total omset selaras 100% dengan tabel riwayat.
 
-### C. Desain UI Kontainer Scroll Mouse & Sticky Header
+### C. Desain UI Kontainer Scroll Mouse & Solusi Anti-Tumpuk Header/Footer
 1. **Dropdown Tampilkan Baris (Limit Data)**:
    - Terintegrasi di header tabel riwayat dengan pilihan: `15 Baris`, `30 Baris (Default)`, `60 Baris`, dan `Tampilkan Semua (Scroll)`.
    - Mengontrol query limit secara dinamis tanpa me-reload halaman.
 2. **Kontainer Scroll Vertikal**:
    - Kontainer tabel (`#container-daily-history` & `#container-monthly-history`) dikonfigurasi dengan:
-     `max-h-[460px] overflow-y-auto rounded-xl border border-gray-800/80 bg-gray-950/40 shadow-inner`.
+     `max-h-[460px] overflow-y-auto rounded-xl border border-gray-800 bg-[#0d1322] shadow-inner`.
    - Menggunakan scrollbar ramping modern (`::-webkit-scrollbar` lebar 6px).
-3. **Sticky Header & Footer**:
-   - `thead` diberi class `sticky top-0 bg-gray-850 z-10 shadow-sm`: judul kolom tetap terlihat saat mouse di-scroll ke bawah.
-   - `tfoot` diberi class `sticky bottom-0 bg-gray-850 z-10 shadow-md`: total ringkasan pendapatan tetap terlihat di bagian bawah kontainer.
+3. **Perbaikan Tampilan Teks/Angka Tertumpuk (Solid Header & Footers)**:
+   - **Akar Masalah**: Class `bg-gray-850` tidak ada di default Tailwind CSS, sehingga header dan footer sebelumnya ter-render **transparan**. Saat baris tabel di-scroll lewat di bawah header/footer, angka-angka menembus dan terlihat tumpang tindih (*tertumpuk*).
+   - **Solusi Header**: Header `thead` diberi class `.sticky-table-header th` dengan `position: sticky; top: 0; z-index: 20; background-color: #111827 !important; border-bottom: 1px solid #374151 !important;` (solid 100% opaque, tidak tembus pandang).
+   - **Solusi Footer (`tfoot`)**: Dihapus dari `sticky bottom-0` yang menutupi data dan diganti menjadi baris penutup alami tabel dengan warna solid `bg-gray-900 border-t-2 border-amber-500/60` (harian) atau `border-cyan-500/60` (bulanan), setiap `<td>` dilapisi `bg-gray-900` solid.
 4. **Petunjuk Interaktif**:
    - Ditambahkan hint visual di bawah tabel: *"Gunakan scroll roda mouse pada tabel untuk menjelajahi riwayat data ke bawah (Riwayat aktif dimulai sejak September 2026)"*.
 
 ---
-*Catatan Terakhir Diperbarui: 9 Oktober 2026 - Batas Riwayat Mulai September 2026, Sticky Header Table & Mouse Scroll Dropdown.*
+*Catatan Terakhir Diperbarui: 9 Oktober 2026 - Batas Riwayat Mulai September 2026, Sticky Header Solid (Anti-Tumpuk) & Mouse Scroll Dropdown.*

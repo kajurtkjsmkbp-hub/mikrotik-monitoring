@@ -482,30 +482,30 @@ async function loadDailyHistory() {
         if (summary && vel.dailyHistoryTfoot) {
             const titleLabel = summary.selectedMonth !== 'all' ? `TOTAL BULAN INI` : `TOTAL PERIODE (${list.length} HARI)`;
             vel.dailyHistoryTfoot.innerHTML = `
-                <tr>
-                    <td class="px-5 py-3.5 text-amber-400 uppercase text-xs font-extrabold flex items-center gap-1.5">
+                <tr class="bg-gray-900 border-t-2 border-amber-500/60">
+                    <td class="px-5 py-3.5 bg-gray-900 text-amber-400 uppercase text-xs font-extrabold flex items-center gap-1.5">
                         <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
                         <span>${escapeHtml(titleLabel)}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center">
                         <span class="text-amber-300 font-bold font-mono">${summary.count1k || 0} lbr</span>
                         <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue1k || 0).toLocaleString('id-ID')}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center">
                         <span class="text-cyan-300 font-bold font-mono">${summary.count2k || 0} lbr</span>
                         <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue2k || 0).toLocaleString('id-ID')}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center">
                         <span class="text-emerald-300 font-bold font-mono">${summary.count3k || 0} lbr</span>
                         <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue3k || 0).toLocaleString('id-ID')}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center font-extrabold text-white font-mono text-xs">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center font-extrabold text-white font-mono text-xs">
                         ${summary.totalCount || 0} voucher
                     </td>
-                    <td class="px-5 py-3.5 text-right font-mono text-amber-400 font-extrabold text-sm sm:text-base">
+                    <td class="px-5 py-3.5 bg-gray-900 text-right font-mono text-amber-400 font-extrabold text-sm sm:text-base">
                         Rp ${(summary.totalRevenue || 0).toLocaleString('id-ID')}
                     </td>
-                    <td class="px-4 py-3.5 text-center text-[10px] text-gray-500 font-sans">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center text-[10px] text-gray-500 font-sans">
                         Rekap
                     </td>
                 </tr>
@@ -591,30 +591,30 @@ async function loadMonthlyHistory() {
         if (summary && vel.monthlyHistoryTfoot) {
             const titleLabel = summary.selectedYear !== 'all' ? `TOTAL OMSET TAHUN ${summary.selectedYear}` : `TOTAL OMSET KESELURUHAN`;
             vel.monthlyHistoryTfoot.innerHTML = `
-                <tr>
-                    <td class="px-5 py-3.5 text-cyan-400 uppercase text-xs font-extrabold flex items-center gap-1.5">
+                <tr class="bg-gray-900 border-t-2 border-cyan-500/60">
+                    <td class="px-5 py-3.5 bg-gray-900 text-cyan-400 uppercase text-xs font-extrabold flex items-center gap-1.5">
                         <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
                         <span>${escapeHtml(titleLabel)}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center">
                         <span class="text-amber-300 font-bold font-mono">${summary.count1k || 0} lbr</span>
                         <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue1k || 0).toLocaleString('id-ID')}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center">
                         <span class="text-cyan-300 font-bold font-mono">${summary.count2k || 0} lbr</span>
                         <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue2k || 0).toLocaleString('id-ID')}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center">
                         <span class="text-emerald-300 font-bold font-mono">${summary.count3k || 0} lbr</span>
                         <span class="text-gray-400 text-[11px] block font-mono">Rp ${(summary.revenue3k || 0).toLocaleString('id-ID')}</span>
                     </td>
-                    <td class="px-4 py-3.5 text-center font-extrabold text-white font-mono text-xs">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center font-extrabold text-white font-mono text-xs">
                         ${summary.totalCount || 0} voucher
                     </td>
-                    <td class="px-5 py-3.5 text-right font-mono text-cyan-400 font-extrabold text-base">
+                    <td class="px-5 py-3.5 bg-gray-900 text-right font-mono text-cyan-400 font-extrabold text-base">
                         Rp ${(summary.totalRevenue || 0).toLocaleString('id-ID')}
                     </td>
-                    <td class="px-4 py-3.5 text-center text-[10px] text-gray-500 font-sans">
+                    <td class="px-4 py-3.5 bg-gray-900 text-center text-[10px] text-gray-500 font-sans">
                         Tahunan
                     </td>
                 </tr>
