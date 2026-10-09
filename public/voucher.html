@@ -336,6 +336,19 @@
                     </div>
                 </div>
 
+                    <!-- Dropdown Tampilkan Baris (Limit Data) -->
+                    <div class="flex items-center gap-1.5">
+                        <div class="relative">
+                            <select id="filter-history-limit" onchange="onHistoryLimitChange()" class="bg-gray-800 hover:bg-gray-750 border border-gray-700 text-xs text-gray-200 font-medium rounded-xl pl-3 pr-8 py-1.5 focus:outline-none focus:border-amber-500 transition cursor-pointer appearance-none">
+                                <option value="15">Tampilkan 15 Baris</option>
+                                <option value="30" selected>Tampilkan 30 Baris</option>
+                                <option value="60">Tampilkan 60 Baris</option>
+                                <option value="all">Tampilkan Semua (Scroll)</option>
+                            </select>
+                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-2.5 pointer-events-none"></i>
+                        </div>
+                    </div>
+
                     <!-- Dropdown Filter Bulan (untuk Rekap Harian) -->
                     <div id="filter-daily-wrapper" class="flex items-center gap-1.5">
                         <div class="relative">
@@ -376,10 +389,10 @@
                 </div>
             </div>
 
-            <!-- Daily History Table Container -->
-            <div id="container-daily-history" class="overflow-x-auto">
-                <table class="w-full text-left text-xs text-gray-300">
-                    <thead class="bg-gray-850 text-gray-400 uppercase text-[11px] font-semibold border-b border-gray-800">
+            <!-- Daily History Table Container (Scrollable dengan Sticky Header) -->
+            <div id="container-daily-history" class="overflow-x-auto max-h-[460px] overflow-y-auto rounded-xl border border-gray-800/80 bg-gray-950/40 shadow-inner">
+                <table class="w-full text-left text-xs text-gray-300 relative border-collapse">
+                    <thead class="sticky top-0 bg-gray-850 text-gray-400 uppercase text-[11px] font-semibold border-b border-gray-800 z-10 shadow-sm">
                         <tr>
                             <th class="px-5 py-3">Hari & Tanggal</th>
                             <th class="px-4 py-3 text-center">Paket Rp 1.000 (3 Jam)</th>
@@ -395,16 +408,16 @@
                             <td colspan="7" class="text-center py-8 text-gray-500 font-mono">Memuat riwayat harian...</td>
                         </tr>
                     </tbody>
-                    <tfoot id="daily-history-tfoot" class="hidden bg-gray-850/90 font-bold border-t-2 border-amber-500/40 text-xs text-gray-200">
+                    <tfoot id="daily-history-tfoot" class="hidden sticky bottom-0 bg-gray-850 font-bold border-t-2 border-amber-500/50 text-xs text-gray-200 z-10 shadow-md">
                         <!-- Populated by JS -->
                     </tfoot>
                 </table>
             </div>
 
-            <!-- Monthly History Table Container (hidden by default) -->
-            <div id="container-monthly-history" class="overflow-x-auto hidden">
-                <table class="w-full text-left text-xs text-gray-300">
-                    <thead class="bg-gray-850 text-gray-400 uppercase text-[11px] font-semibold border-b border-gray-800">
+            <!-- Monthly History Table Container (Scrollable dengan Sticky Header) -->
+            <div id="container-monthly-history" class="overflow-x-auto max-h-[460px] overflow-y-auto rounded-xl border border-gray-800/80 bg-gray-950/40 shadow-inner hidden">
+                <table class="w-full text-left text-xs text-gray-300 relative border-collapse">
+                    <thead class="sticky top-0 bg-gray-850 text-gray-400 uppercase text-[11px] font-semibold border-b border-gray-800 z-10 shadow-sm">
                         <tr>
                             <th class="px-5 py-3">Periode Bulan</th>
                             <th class="px-4 py-3 text-center">Paket Rp 1.000 (3 Jam)</th>
@@ -420,10 +433,22 @@
                             <td colspan="7" class="text-center py-8 text-gray-500 font-mono">Memuat riwayat bulanan...</td>
                         </tr>
                     </tbody>
-                    <tfoot id="monthly-history-tfoot" class="hidden bg-gray-850/90 font-bold border-t-2 border-cyan-500/40 text-xs text-gray-200">
+                    <tfoot id="monthly-history-tfoot" class="hidden sticky bottom-0 bg-gray-850 font-bold border-t-2 border-cyan-500/50 text-xs text-gray-200 z-10 shadow-md">
                         <!-- Populated by JS -->
                     </tfoot>
                 </table>
+            </div>
+
+            <!-- Hint Scroll Mouse & Periode Mulai -->
+            <div class="flex flex-wrap items-center justify-between text-[11px] text-gray-400 pt-1 px-1 gap-2">
+                <div class="flex items-center gap-1.5 text-gray-400">
+                    <i data-lucide="mouse" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span>Gunakan <b>scroll roda mouse</b> pada tabel untuk menjelajahi riwayat data ke bawah.</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-gray-500 font-mono text-[10px]">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    <span>Riwayat aktif dimulai sejak September 2026</span>
+                </div>
             </div>
         </section>
 

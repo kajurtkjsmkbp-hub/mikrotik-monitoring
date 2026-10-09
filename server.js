@@ -1006,7 +1006,8 @@ app.get('/api/vouchers/summary', async (req, res) => {
 
 app.get('/api/vouchers/daily-history', async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit, 10) || 60;
+        const limitParam = req.query.limit;
+        const limit = (limitParam === 'all' || limitParam === '0') ? 1000 : (parseInt(limitParam, 10) || 60);
         const month = req.query.month || null;
         const history = await voucherDb.getDailyHistory({ limit, month });
         res.json(history);
@@ -1017,7 +1018,8 @@ app.get('/api/vouchers/daily-history', async (req, res) => {
 
 app.get('/api/vouchers/monthly-history', async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit, 10) || 24;
+        const limitParam = req.query.limit;
+        const limit = (limitParam === 'all' || limitParam === '0') ? 1000 : (parseInt(limitParam, 10) || 24);
         const year = req.query.year || null;
         const history = await voucherDb.getMonthlyHistory({ limit, year });
         res.json(history);

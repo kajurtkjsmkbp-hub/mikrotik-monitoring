@@ -653,4 +653,48 @@ Jika `dateChanged` terdeteksi, total delta RX dan TX tidak lagi ditumpahkan 100%
   3. Dapat dipicu kapan saja melalui REST API: `POST /api/traffic/rectify-spike`.
 
 ---
-*Catatan Terakhir Diperbarui: 9 Oktober 2026 - Presisi Pergantian Hari (00:00 WIB), Pemisahan Kuota Trafik Lintas Hari & Fitur Auto-Rectify Boot Spike.*
+
+## 19. Filter Batas Awal Riwayat Buku Kas (Mulai September 2026) & Scroll Mouse dengan Sticky Header (9 Oktober 2026)
+
+### A. Latar Belakang & Kebutuhan Pengguna
+- **Data Testing Lama / Out-of-Scope**:
+  - Pada database, terdapat rekap jejak lama sebelum bisnis RT/RW Net resmi beroperasi penuh (misal: Juli 2026, Juni 2026, April 2026, Maret 2026, November 2025, Oktober 2025).
+  - Pengguna meminta agar riwayat buku kas **hanya dimulai sejak September 2026** (`2026-09`), dan seluruh data bulan/tahun kebelakang **tidak ditampilkan**.
+- **Kenyamanan Navigasi Data Banyak**:
+  - Tabel riwayat yang berisi puluhan baris sebelumnya memanjang ke bawah dan memaksa pengguna men-scroll seluruh halaman web.
+  - Pengguna menginginkan tabel yang rapi di mana pengguna cukup men-scroll roda mouse (*mouse wheel scroll*) di dalam tabel secara mandiri dengan dropdown limit tampilan.
+
+### B. Arsitektur Filter Threshold Minimum (September 2026)
+Di `voucher-db.js`, didefinisikan konstanta batasan:
+```javascript
+const MIN_HISTORY_DATE = '2026-09-01';
+const MIN_HISTORY_MONTH = '2026-09';
+const MIN_HISTORY_YEAR = '2026';
+```
+1. **Rekap Harian (`getDailyHistory`)**:
+   Query SQL mengunci `WHERE status = 'used' AND activated_date >= '2026-09-01'`.
+2. **Rekap Bulanan (`getMonthlyHistory`)**:
+   Query SQL mengunci `WHERE status = 'used' AND substr(activated_date, 1, 7) >= '2026-09'`.
+3. **Dropdown Pilihan Periode (`getAvailablePeriods`)**:
+   Dropdown tahun hanya memuat tahun $\ge 2026$, dan dropdown bulan hanya memuat bulan $\ge \text{September 2026}$ (`2026-09`, `2026-10`, dst.).
+4. **Export CSV (`exportHistoryCsv`)**:
+   Data yang diexport ke CSV otomatis dibatasi mulai September 2026 ke atas.
+5. **Omset All-Time (`getSummary`)**:
+   Hanya menghitung voucher yang aktif sejak September 2026 ke atas agar total omset selaras 100% dengan tabel riwayat.
+
+### C. Desain UI Kontainer Scroll Mouse & Sticky Header
+1. **Dropdown Tampilkan Baris (Limit Data)**:
+   - Terintegrasi di header tabel riwayat dengan pilihan: `15 Baris`, `30 Baris (Default)`, `60 Baris`, dan `Tampilkan Semua (Scroll)`.
+   - Mengontrol query limit secara dinamis tanpa me-reload halaman.
+2. **Kontainer Scroll Vertikal**:
+   - Kontainer tabel (`#container-daily-history` & `#container-monthly-history`) dikonfigurasi dengan:
+     `max-h-[460px] overflow-y-auto rounded-xl border border-gray-800/80 bg-gray-950/40 shadow-inner`.
+   - Menggunakan scrollbar ramping modern (`::-webkit-scrollbar` lebar 6px).
+3. **Sticky Header & Footer**:
+   - `thead` diberi class `sticky top-0 bg-gray-850 z-10 shadow-sm`: judul kolom tetap terlihat saat mouse di-scroll ke bawah.
+   - `tfoot` diberi class `sticky bottom-0 bg-gray-850 z-10 shadow-md`: total ringkasan pendapatan tetap terlihat di bagian bawah kontainer.
+4. **Petunjuk Interaktif**:
+   - Ditambahkan hint visual di bawah tabel: *"Gunakan scroll roda mouse pada tabel untuk menjelajahi riwayat data ke bawah (Riwayat aktif dimulai sejak September 2026)"*.
+
+---
+*Catatan Terakhir Diperbarui: 9 Oktober 2026 - Batas Riwayat Mulai September 2026, Sticky Header Table & Mouse Scroll Dropdown.*

@@ -38,6 +38,11 @@ const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Jakarta';
 const INDO_DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const INDO_MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
+// Batas minimum riwayat buku kas dimulai per September 2026 (bulan/tahun sebelumnya tidak ditampilkan)
+const MIN_HISTORY_DATE = '2026-09-01';
+const MIN_HISTORY_MONTH = '2026-09';
+const MIN_HISTORY_YEAR = '2026';
+
 function getJakartaParts(dateObj = new Date()) {
     const d = (dateObj instanceof Date && !isNaN(dateObj.getTime())) ? dateObj : new Date();
     const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -853,13 +858,13 @@ class VoucherSQLiteDatabase {
             summary.thisMonth.totalRevenue += rev;
         });
 
-        // 4. All-time Used
+        // 4. All-time Used (Dihitung mulai September 2026)
         const allTimeRows = await this.all(`
             SELECT package_key, COUNT(*) as cnt, SUM(price) as rev 
             FROM vouchers 
-            WHERE status = 'used' 
+            WHERE status = 'used' AND (activated_date IS NULL OR activated_date >= ?)
             GROUP BY package_key
-        `);
+        `, [MIN_HISTORY_DATE]);
 
         allTimeRows.forEach(r => {
             const count = r.cnt || 0;
@@ -910,9 +915,9 @@ class VoucherSQLiteDatabase {
                 COUNT(*) as totalCount,
                 SUM(price) as totalRevenue
             FROM vouchers
-            WHERE status = 'used' AND activated_date IS NOT NULL
+            WHERE status = 'used' AND activated_date IS NOT NULL AND activated_date >= ?
         `;
-        const params = [];
+        const params = [MIN_HISTORY_DATE];
         if (month) {
             sql += ` AND substr(activated_date, 1, 7) = ? `;
             params.push(month);
@@ -996,9 +1001,9 @@ class VoucherSQLiteDatabase {
                 COUNT(*) as totalCount,
                 SUM(price) as totalRevenue
             FROM vouchers
-            WHERE status = 'used' AND activated_date IS NOT NULL
+            WHERE status = 'used' AND activated_date IS NOT NULL AND substr(activated_date, 1, 7) >= ?
         `;
-        const params = [];
+        const params = [MIN_HISTORY_MONTH];
         if (year) {
             sql += ` AND substr(activated_date, 1, 4) = ? `;
             params.push(String(year));
@@ -1066,23 +1071,23 @@ class VoucherSQLiteDatabase {
         };
     }
 
-    // Get Distinct Available Years and Months for Filters
+    // Get Distinct Available Years and Months for Filters (Dimulai dari September 2026)
     async getAvailablePeriods() {
         const yearRows = await this.all(`
             SELECT DISTINCT substr(activated_date, 1, 4) as year
             FROM vouchers
-            WHERE status = 'used' AND activated_date IS NOT NULL
+            WHERE status = 'used' AND activated_date IS NOT NULL AND substr(activated_date, 1, 4) >= ?
             ORDER BY year DESC
-        `);
+        `, [MIN_HISTORY_YEAR]);
 
         const monthRows = await this.all(`
             SELECT DISTINCT substr(activated_date, 1, 7) as monthKey
             FROM vouchers
-            WHERE status = 'used' AND activated_date IS NOT NULL
+            WHERE status = 'used' AND activated_date IS NOT NULL AND substr(activated_date, 1, 7) >= ?
             ORDER BY monthKey DESC
-        `);
+        `, [MIN_HISTORY_MONTH]);
 
-        const months = monthRows.map(r => {
+        let months = monthRows.map(r => {
             let label = r.monthKey;
             try {
                 const [y, m] = r.monthKey.split('-').map(Number);
@@ -1097,19 +1102,22 @@ class VoucherSQLiteDatabase {
             };
         });
 
-        const years = yearRows.map(r => r.year).filter(Boolean);
+        let years = yearRows.map(r => r.year).filter(Boolean);
 
         const parts = getJakartaParts(new Date());
-        if (!years.includes(parts.year)) {
+        if (!years.includes(parts.year) && parts.year >= MIN_HISTORY_YEAR) {
             years.unshift(parts.year);
         }
-        if (!months.some(m => m.monthKey === parts.monthKey)) {
+        if (!months.some(m => m.monthKey === parts.monthKey) && parts.monthKey >= MIN_HISTORY_MONTH) {
             months.unshift({
                 monthKey: parts.monthKey,
                 monthLabel: `${parts.monthName} ${parts.year}`,
                 year: parts.year
             });
         }
+
+        years = years.filter(y => y >= MIN_HISTORY_YEAR);
+        months = months.filter(m => m.monthKey >= MIN_HISTORY_MONTH);
 
         return { years, months };
     }

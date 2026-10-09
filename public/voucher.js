@@ -9,6 +9,7 @@ let vState = {
     monthFilter: null,
     historyMonthFilter: null,
     historyYearFilter: null,
+    historyLimit: '30',
     activeHistoryTab: 'daily',
     searchQuery: '',
     currentPage: 1,
@@ -53,6 +54,7 @@ const vel = new Proxy({}, {
             statCount3kToday: 'stat-count-3k-today',
             statStock3k: 'stat-stock-3k',
             cardStock3k: 'card-stock-3k',
+            filterHistoryLimit: 'filter-history-limit',
             filterDailyWrapper: 'filter-daily-wrapper',
             filterDailyMonth: 'filter-daily-month',
             filterMonthlyWrapper: 'filter-monthly-wrapper',
@@ -301,14 +303,14 @@ function renderSummary(summary) {
     vel.cardStock3k.textContent = stock['3k'] || 0;
 }
 
-// Load distinct available years and months from backend into dropdown filters
+// Load distinct available years and months from backend into dropdown filters (Mulai September 2026)
 async function loadAvailablePeriods() {
     try {
         const res = await fetch('/api/vouchers/periods');
         if (!res.ok) return;
         const data = await res.json();
-        const years = data.years || [];
-        const months = data.months || [];
+        const years = (data.years || []).filter(y => String(y) >= '2026');
+        const months = (data.months || []).filter(m => String(m.monthKey) >= '2026-09');
 
         // 1. Populate Month Filter (for Rekap Harian)
         if (vel.filterDailyMonth) {
@@ -335,6 +337,17 @@ async function loadAvailablePeriods() {
         console.error('Error loading available periods:', e);
     }
 }
+
+// Handler Perubahan Dropdown Limit Baris Riwayat
+window.onHistoryLimitChange = function() {
+    const el = document.getElementById('filter-history-limit');
+    vState.historyLimit = el ? el.value : '30';
+    if (vState.activeHistoryTab === 'monthly') {
+        loadMonthlyHistory();
+    } else {
+        loadDailyHistory();
+    }
+};
 
 // History Tab Switcher
 window.switchHistoryTab = function(tab) {
@@ -400,17 +413,21 @@ window.clearMonthHistoryFilter = function() {
     loadDailyHistory();
 };
 
-// Fetch & Render Daily History Table
+// Fetch & Render Daily History Table (Mulai September 2026)
 async function loadDailyHistory() {
     try {
-        let url = '/api/vouchers/daily-history?limit=60';
+        const limitParam = vState.historyLimit || '30';
+        let url = `/api/vouchers/daily-history?limit=${encodeURIComponent(limitParam)}`;
         if (vState.historyMonthFilter) {
             url += `&month=${encodeURIComponent(vState.historyMonthFilter)}`;
         }
         const res = await fetch(url);
         const data = await res.json();
-        const list = Array.isArray(data) ? data : (data.items || []);
+        let list = Array.isArray(data) ? data : (data.items || []);
         const summary = Array.isArray(data) ? null : data.summary;
+
+        // Filter proteksi: hanya tampilkan mulai September 2026 ke atas
+        list = list.filter(item => !item.dateKey || item.dateKey >= '2026-09-01');
 
         if (!list || list.length === 0) {
             vel.dailyHistoryTbody.innerHTML = `
@@ -504,17 +521,21 @@ async function loadDailyHistory() {
     }
 }
 
-// Fetch & Render Monthly History Table
+// Fetch & Render Monthly History Table (Mulai September 2026)
 async function loadMonthlyHistory() {
     try {
-        let url = '/api/vouchers/monthly-history?limit=36';
+        const limitParam = vState.historyLimit || '30';
+        let url = `/api/vouchers/monthly-history?limit=${encodeURIComponent(limitParam)}`;
         if (vState.historyYearFilter) {
             url += `&year=${encodeURIComponent(vState.historyYearFilter)}`;
         }
         const res = await fetch(url);
         const data = await res.json();
-        const list = Array.isArray(data) ? data : (data.items || []);
+        let list = Array.isArray(data) ? data : (data.items || []);
         const summary = Array.isArray(data) ? null : data.summary;
+
+        // Filter proteksi: hanya tampilkan mulai September 2026 ke atas
+        list = list.filter(item => !item.monthKey || item.monthKey >= '2026-09');
 
         if (!list || list.length === 0) {
             vel.monthlyHistoryTbody.innerHTML = `
@@ -1148,7 +1169,8 @@ window.exportHistoryCsv = async function() {
             }
             const res = await fetch(url);
             const data = await res.json();
-            const list = Array.isArray(data) ? data : (data.items || []);
+            let list = Array.isArray(data) ? data : (data.items || []);
+            list = list.filter(r => !r.monthKey || r.monthKey >= '2026-09');
 
             if (!list || list.length === 0) {
                 showToast('Belum ada data bulanan untuk diunduh', 'info');
@@ -1174,7 +1196,8 @@ window.exportHistoryCsv = async function() {
             }
             const res = await fetch(url);
             const data = await res.json();
-            const list = Array.isArray(data) ? data : (data.items || []);
+            let list = Array.isArray(data) ? data : (data.items || []);
+            list = list.filter(r => !r.dateKey || r.dateKey >= '2026-09-01');
 
             if (!list || list.length === 0) {
                 showToast('Belum ada data harian untuk diunduh', 'info');
