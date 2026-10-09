@@ -893,10 +893,16 @@ async function runSmartPoll() {
                         txFormatted: formatBytes(i['tx-byte'])
                     }));
 
-                    // Record cumulative traffic bytes in SQLite with reboot protection
+                    // Record cumulative traffic bytes in SQLite with reboot protection & date-transition splitting
                     const uptimeSec = parseUptimeToSeconds(cache.resource.uptime);
+                    const umSessions = getUmSessionsCached();
                     for (const ifaceItem of cache.interfaces) {
-                        await trafficDb.recordInterfaceTraffic(ifaceItem.name, ifaceItem.rxByte, ifaceItem.txByte, uptimeSec);
+                        await trafficDb.recordInterfaceTraffic(ifaceItem.name, ifaceItem.rxByte, ifaceItem.txByte, uptimeSec, { umSessions });
+                    }
+
+                    // Auto-rectify lonjakan spike akibat boot/padam semalam pada siklus poll awal
+                    if (cycleCount === 1) {
+                        trafficDb.autoRectifyBootTrafficSpike().catch(() => {});
                     }
 
                     // Emit live traffic update for active WAN interface
@@ -1224,6 +1230,17 @@ app.get('/api/traffic/export', async (req, res) => {
         res.send(csv);
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// AUTO-RECTIFY BOOT SPIKE (Kembalikan akumulasi kuota kemarin yang tumpah ke jam boot pagi ini)
+app.post('/api/traffic/rectify-spike', async (req, res) => {
+    try {
+        const iface = req.body.interface || null;
+        const rectified = await trafficDb.autoRectifyBootTrafficSpike(iface);
+        res.json({ success: true, rectified });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
@@ -1809,6 +1826,7 @@ server.listen(PORT, '0.0.0.0', () => {
         refreshUmSessions().catch(() => {});
         refreshUmUsers().catch(() => {});
         refreshLocalUsers().catch(() => {});
+        trafficDb.autoRectifyBootTrafficSpike().catch(() => {});
     }, 2000);
     // Refresh User Manager Sessions, Users, dan Local users berkala di background tiap 2 menit
     setInterval(() => {

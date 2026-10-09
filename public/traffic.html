@@ -113,11 +113,11 @@
                 </div>
                 <div>
                     <h3 class="font-bold text-white text-sm flex items-center gap-2">
-                        <span>Perhitungan Trafik Anti-Hilang & Tahan Restart Router</span>
-                        <span class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">Auto Delta Safe</span>
+                        <span>Perhitungan Trafik Anti-Hilang & Tahan Padam Server / Router</span>
+                        <span class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">Auto Delta & Split Safe</span>
                     </h3>
                     <p class="text-gray-300 mt-0.5">
-                        MikroTik secara normal mereset counter byte ke 0 setiap kali restart/listrik padam. Sistem ini secara otomatis mendeteksi reboot, mengunci data sebelum restart, dan mengakumulasikan trafik baru ke database lokal SQLite secara persisten.
+                        MikroTik secara normal mereset counter byte ke 0 saat reboot. Sistem ini mengunci data sebelum restart, mengakumulasikan trafik baru, serta otomatis memisahkan kuota kemarin vs hari ini jika server Proxmox atau MikroTik padam malam hari agar pemakaian tidak tertumpuk di hari ini.
                     </p>
                 </div>
             </div>

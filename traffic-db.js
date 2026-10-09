@@ -195,13 +195,48 @@ class TrafficDatabase {
     }
 
     /**
-     * Engine Rekam Trafik Utama (Dengan Deteksi Reboot MikroTik & Listrik Padam)
+     * Helper mencocokkan string tanggal sesi (MikroTik User Manager) dengan target YYYY-MM-DD
+     */
+    matchSessionDate(sessionDateStr, targetDateStr) {
+        if (!sessionDateStr || !targetDateStr) return false;
+        const s = String(sessionDateStr).toLowerCase().trim();
+        const t = String(targetDateStr).toLowerCase().trim();
+
+        if (s.includes(t)) return true;
+
+        const parts = t.split('-');
+        if (parts.length === 3) {
+            const year = parts[0];
+            const monthNum = parseInt(parts[1], 10);
+            const day = parts[2];
+            const dayNum = parseInt(day, 10);
+
+            const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+            const monthCode = monthNames[monthNum - 1] || '';
+
+            if (monthCode) {
+                const dayPadded = String(dayNum).padStart(2, '0');
+                if (s.includes(`${monthCode}/${dayPadded}`) || s.includes(`${monthCode}/${dayNum}/`) || s.includes(`${monthCode}/${dayNum} `)) {
+                    return true;
+                }
+            }
+
+            if (s.includes(`${day}/${parts[1]}/${year}`) || s.includes(`${parts[1]}/${day}/${year}`)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Engine Rekam Trafik Utama (Dengan Deteksi Reboot MikroTik & Pemisahan Transisi Hari)
      * @param {string} ifaceName Nama interface, misal 'ether1-internet'
      * @param {number|string} rawRxBytes Counter rx-byte saat ini dari MikroTik
      * @param {number|string} rawTxBytes Counter tx-byte saat ini dari MikroTik
      * @param {number} uptimeSec Router uptime dalam detik
+     * @param {object} options Konfigurasi tambahan, seperti { umSessions: [] }
      */
-    async recordInterfaceTraffic(ifaceName, rawRxBytes, rawTxBytes, uptimeSec = 0) {
+    async recordInterfaceTraffic(ifaceName, rawRxBytes, rawTxBytes, uptimeSec = 0, options = {}) {
         await this.initPromise;
         if (!ifaceName || ifaceName === 'undefined') return;
 
@@ -274,6 +309,9 @@ class TrafficDatabase {
         const deltaTotal = deltaRx + deltaTx;
         const rebootIncrement = rebootDetected ? 1 : 0;
 
+        const prevDate = meta.last_seen_date;
+        const dateChanged = Boolean(prevDate && prevDate !== dateKey);
+
         // Perbarui metadata cache & database
         meta.last_raw_rx = currRx;
         meta.last_raw_tx = currTx;
@@ -293,29 +331,246 @@ class TrafficDatabase {
 
         // Simpan akumulasi jika ada penambahan delta atau event reboot
         if (deltaTotal > 0 || rebootIncrement > 0) {
-            // 1. Akumulasi Harian
-            await this.runQuery(`
-                INSERT INTO traffic_daily (interface, date, rx_bytes, tx_bytes, total_bytes, reboot_count, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(interface, date) DO UPDATE SET
-                    rx_bytes = rx_bytes + excluded.rx_bytes,
-                    tx_bytes = tx_bytes + excluded.tx_bytes,
-                    total_bytes = total_bytes + excluded.total_bytes,
-                    reboot_count = reboot_count + excluded.reboot_count,
-                    updated_at = excluded.updated_at
-            `, [ifaceName, dateKey, deltaRx, deltaTx, deltaTotal, rebootIncrement, nowIso]);
+            if (dateChanged && deltaTotal > 0) {
+                // LOGIKA TRANSISI HARI: Jangan gabungkan kuota kemarin ke hari ini jika server Proxmox / MikroTik padam malam hari!
+                let ratioYesterday = 0.50;
+                let splitMethod = 'time_profile';
 
-            // 2. Akumulasi per Jam
-            await this.runQuery(`
-                INSERT INTO traffic_hourly (interface, date, hour, rx_bytes, tx_bytes, total_bytes, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(interface, date, hour) DO UPDATE SET
-                    rx_bytes = rx_bytes + excluded.rx_bytes,
-                    tx_bytes = tx_bytes + excluded.tx_bytes,
-                    total_bytes = total_bytes + excluded.total_bytes,
-                    updated_at = excluded.updated_at
-            `, [ifaceName, dateKey, hour, deltaRx, deltaTx, deltaTotal, nowIso]);
+                // 1. Cek User Manager Sessions jika tersedia
+                const umSessions = options?.umSessions || [];
+                if (Array.isArray(umSessions) && umSessions.length > 0) {
+                    let umYesterdayBytes = 0;
+                    let umTodayBytes = 0;
+                    for (const s of umSessions) {
+                        const sDate = s['from-time'] || s['started'] || '';
+                        const dl = Number(s['download']) || 0;
+                        const ul = Number(s['upload']) || 0;
+                        const bytes = dl + ul;
+                        if (bytes <= 0) continue;
+                        if (this.matchSessionDate(sDate, prevDate)) {
+                            umYesterdayBytes += bytes;
+                        } else if (this.matchSessionDate(sDate, dateKey)) {
+                            umTodayBytes += bytes;
+                        }
+                    }
+
+                    if ((umYesterdayBytes + umTodayBytes) > 0) {
+                        ratioYesterday = umYesterdayBytes / (umYesterdayBytes + umTodayBytes);
+                        splitMethod = `um_sessions (Kemarin: ${formatBytes(umYesterdayBytes)}, Hari ini: ${formatBytes(umTodayBytes)})`;
+                    }
+                }
+
+                // 2. Fallback Profil Waktu jika tidak ada data sesi UM
+                if (splitMethod === 'time_profile') {
+                    if (hour <= 8) {
+                        // Jika Proxmox/MikroTik baru sinkron di waktu subuh/pagi hari (jam 00 - 08):
+                        // Mayoritas trafik malam (20:00 - 24:00) terjadi sebelum tengah malam
+                        ratioYesterday = 0.85;
+                    } else if (hour <= 12) {
+                        ratioYesterday = 0.65;
+                    } else {
+                        ratioYesterday = 0.50;
+                    }
+                    splitMethod = `time_profile (hour=${hour}, rasio=${Math.round(ratioYesterday * 100)}%)`;
+                }
+
+                const deltaRxYesterday = Math.min(deltaRx, Math.round(deltaRx * ratioYesterday));
+                const deltaTxYesterday = Math.min(deltaTx, Math.round(deltaTx * ratioYesterday));
+                const deltaTotalYesterday = deltaRxYesterday + deltaTxYesterday;
+
+                const deltaRxToday = Math.max(0, deltaRx - deltaRxYesterday);
+                const deltaTxToday = Math.max(0, deltaTx - deltaTxYesterday);
+                const deltaTotalToday = deltaRxToday + deltaTxToday;
+
+                console.log(`[Traffic DB] 📅 Transisi Tanggal (${prevDate} -> ${dateKey}) pada "${ifaceName}" [${splitMethod}]:`);
+                console.log(`   └─ Dialokasikan ke Kemarin (${prevDate}): +${formatBytes(deltaTotalYesterday)} (RX: ${formatBytes(deltaRxYesterday)}, TX: ${formatBytes(deltaTxYesterday)})`);
+                console.log(`   └─ Dialokasikan ke Hari Ini (${dateKey} jam ${hour}): +${formatBytes(deltaTotalToday)} (RX: ${formatBytes(deltaRxToday)}, TX: ${formatBytes(deltaTxToday)})`);
+
+                // A. Simpan porsi kemarin ke traffic_daily & traffic_hourly (jam 23 penutup kemarin)
+                if (deltaTotalYesterday > 0) {
+                    await this.runQuery(`
+                        INSERT INTO traffic_daily (interface, date, rx_bytes, tx_bytes, total_bytes, reboot_count, updated_at)
+                        VALUES (?, ?, ?, ?, ?, 0, ?)
+                        ON CONFLICT(interface, date) DO UPDATE SET
+                            rx_bytes = rx_bytes + excluded.rx_bytes,
+                            tx_bytes = tx_bytes + excluded.tx_bytes,
+                            total_bytes = total_bytes + excluded.total_bytes,
+                            updated_at = excluded.updated_at
+                    `, [ifaceName, prevDate, deltaRxYesterday, deltaTxYesterday, deltaTotalYesterday, nowIso]);
+
+                    await this.runQuery(`
+                        INSERT INTO traffic_hourly (interface, date, hour, rx_bytes, tx_bytes, total_bytes, updated_at)
+                        VALUES (?, ?, 23, ?, ?, ?, ?)
+                        ON CONFLICT(interface, date, hour) DO UPDATE SET
+                            rx_bytes = rx_bytes + excluded.rx_bytes,
+                            tx_bytes = tx_bytes + excluded.tx_bytes,
+                            total_bytes = total_bytes + excluded.total_bytes,
+                            updated_at = excluded.updated_at
+                    `, [ifaceName, prevDate, deltaRxYesterday, deltaTxYesterday, deltaTotalYesterday, nowIso]);
+                }
+
+                // B. Simpan porsi hari ini ke traffic_daily & traffic_hourly (jam saat ini)
+                await this.runQuery(`
+                    INSERT INTO traffic_daily (interface, date, rx_bytes, tx_bytes, total_bytes, reboot_count, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(interface, date) DO UPDATE SET
+                        rx_bytes = rx_bytes + excluded.rx_bytes,
+                        tx_bytes = tx_bytes + excluded.tx_bytes,
+                        total_bytes = total_bytes + excluded.total_bytes,
+                        reboot_count = reboot_count + excluded.reboot_count,
+                        updated_at = excluded.updated_at
+                `, [ifaceName, dateKey, deltaRxToday, deltaTxToday, deltaTotalToday, rebootIncrement, nowIso]);
+
+                await this.runQuery(`
+                    INSERT INTO traffic_hourly (interface, date, hour, rx_bytes, tx_bytes, total_bytes, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(interface, date, hour) DO UPDATE SET
+                        rx_bytes = rx_bytes + excluded.rx_bytes,
+                        tx_bytes = tx_bytes + excluded.tx_bytes,
+                        total_bytes = total_bytes + excluded.total_bytes,
+                        updated_at = excluded.updated_at
+                `, [ifaceName, dateKey, hour, deltaRxToday, deltaTxToday, deltaTotalToday, nowIso]);
+
+            } else {
+                // Akumulasi Normal dalam hari yang sama
+                // 1. Akumulasi Harian
+                await this.runQuery(`
+                    INSERT INTO traffic_daily (interface, date, rx_bytes, tx_bytes, total_bytes, reboot_count, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(interface, date) DO UPDATE SET
+                        rx_bytes = rx_bytes + excluded.rx_bytes,
+                        tx_bytes = tx_bytes + excluded.tx_bytes,
+                        total_bytes = total_bytes + excluded.total_bytes,
+                        reboot_count = reboot_count + excluded.reboot_count,
+                        updated_at = excluded.updated_at
+                `, [ifaceName, dateKey, deltaRx, deltaTx, deltaTotal, rebootIncrement, nowIso]);
+
+                // 2. Akumulasi per Jam
+                await this.runQuery(`
+                    INSERT INTO traffic_hourly (interface, date, hour, rx_bytes, tx_bytes, total_bytes, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(interface, date, hour) DO UPDATE SET
+                        rx_bytes = rx_bytes + excluded.rx_bytes,
+                        tx_bytes = tx_bytes + excluded.tx_bytes,
+                        total_bytes = total_bytes + excluded.total_bytes,
+                        updated_at = excluded.updated_at
+                `, [ifaceName, dateKey, hour, deltaRx, deltaTx, deltaTotal, nowIso]);
+            }
         }
+    }
+
+    /**
+     * Otomatis membetulkan lonjakan trafik boot palsu (boot traffic spike)
+     * Kasus: Server Proxmox padam malam hari dan baru hidup pagi hari (jam 00-08).
+     * Seluruh byte yang terpakai semalam secara keliru terakumulasi ke jam boot pagi hari ini.
+     * Fungsi ini mendeteksi lonjakan anomali tersebut dan memindahkannya kembali ke tanggal kemarin (jam 23:00).
+     */
+    async autoRectifyBootTrafficSpike(targetIface = null) {
+        await this.initPromise;
+        const parts = getJakartaParts();
+        const todayStr = parts.dateKey;
+
+        // Tanggal kemarin
+        const yesterdayObj = new Date();
+        yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+        const yesterdayStr = getJakartaParts(yesterdayObj).dateKey;
+
+        let ifacesToCheck = [];
+        if (targetIface) {
+            ifacesToCheck.push(targetIface);
+        } else {
+            const rows = await this.allQuery(`SELECT DISTINCT interface FROM traffic_daily WHERE date = ?`, [todayStr]);
+            ifacesToCheck = rows.map(r => r.interface);
+        }
+
+        let totalRectified = 0;
+        for (const iface of ifacesToCheck) {
+            try {
+                const todayDaily = await this.getQuery(`
+                    SELECT rx_bytes, tx_bytes, total_bytes 
+                    FROM traffic_daily 
+                    WHERE interface = ? AND date = ?
+                `, [iface, todayStr]);
+
+                if (!todayDaily || todayDaily.total_bytes < 3000000000) continue; // Minimal 3 GB
+
+                // Cari lonjakan di jam 00 sampai 08 pagi
+                const spikeRows = await this.allQuery(`
+                    SELECT hour, rx_bytes, tx_bytes, total_bytes
+                    FROM traffic_hourly
+                    WHERE interface = ? AND date = ? AND hour <= 8 AND total_bytes >= 3000000000
+                    ORDER BY total_bytes DESC
+                `, [iface, todayStr]);
+
+                for (const spike of spikeRows) {
+                    const spikeShare = spike.total_bytes / todayDaily.total_bytes;
+                    // Jika jam ini menyumbang >= 40% dari total harian hari ini
+                    if (spikeShare >= 0.40) {
+                        const baselineBytes = Math.min(spike.total_bytes, 150 * 1000 * 1000); // Sisakan 150 MB baseline wajar
+                        const moveTotal = spike.total_bytes - baselineBytes;
+                        if (moveTotal <= 1000 * 1000 * 1000) continue; // Hanya pindahkan jika > 1 GB
+
+                        const rxRatio = spike.total_bytes > 0 ? (spike.rx_bytes / spike.total_bytes) : 0.8;
+                        const moveRx = Math.round(moveTotal * rxRatio);
+                        const moveTx = moveTotal - moveRx;
+
+                        console.log(`[Traffic DB] 🛠️ Terdeteksi anomali boot traffic spike pada interface "${iface}" jam ${spike.hour}:00 (${formatBytes(spike.total_bytes)})`);
+                        console.log(`[Traffic DB] 🔄 Membetulkan data: Memindahkan ${formatBytes(moveTotal)} dari ${todayStr} (jam ${spike.hour}) ke ${yesterdayStr} (jam 23:00)...`);
+
+                        const nowIso = new Date().toISOString();
+
+                        // 1. Kurangi dari traffic_hourly hari ini
+                        await this.runQuery(`
+                            UPDATE traffic_hourly
+                            SET rx_bytes = MAX(0, rx_bytes - ?),
+                                tx_bytes = MAX(0, tx_bytes - ?),
+                                total_bytes = MAX(0, total_bytes - ?),
+                                updated_at = ?
+                            WHERE interface = ? AND date = ? AND hour = ?
+                        `, [moveRx, moveTx, moveTotal, nowIso, iface, todayStr, spike.hour]);
+
+                        // 2. Kurangi dari traffic_daily hari ini
+                        await this.runQuery(`
+                            UPDATE traffic_daily
+                            SET rx_bytes = MAX(0, rx_bytes - ?),
+                                tx_bytes = MAX(0, tx_bytes - ?),
+                                total_bytes = MAX(0, total_bytes - ?),
+                                updated_at = ?
+                            WHERE interface = ? AND date = ?
+                        `, [moveRx, moveTx, moveTotal, nowIso, iface, todayStr]);
+
+                        // 3. Tambahkan ke traffic_daily tanggal kemarin
+                        await this.runQuery(`
+                            INSERT INTO traffic_daily (interface, date, rx_bytes, tx_bytes, total_bytes, reboot_count, updated_at)
+                            VALUES (?, ?, ?, ?, ?, 0, ?)
+                            ON CONFLICT(interface, date) DO UPDATE SET
+                                rx_bytes = rx_bytes + excluded.rx_bytes,
+                                tx_bytes = tx_bytes + excluded.tx_bytes,
+                                total_bytes = total_bytes + excluded.total_bytes,
+                                updated_at = excluded.updated_at
+                        `, [iface, yesterdayStr, moveRx, moveTx, moveTotal, nowIso]);
+
+                        // 4. Tambahkan ke traffic_hourly tanggal kemarin jam 23
+                        await this.runQuery(`
+                            INSERT INTO traffic_hourly (interface, date, hour, rx_bytes, tx_bytes, total_bytes, updated_at)
+                            VALUES (?, ?, 23, ?, ?, ?, ?)
+                            ON CONFLICT(interface, date, hour) DO UPDATE SET
+                                rx_bytes = rx_bytes + excluded.rx_bytes,
+                                tx_bytes = tx_bytes + excluded.tx_bytes,
+                                total_bytes = total_bytes + excluded.total_bytes,
+                                updated_at = excluded.updated_at
+                        `, [iface, yesterdayStr, moveRx, moveTx, moveTotal, nowIso]);
+
+                        totalRectified++;
+                        console.log(`[Traffic DB] ✅ Selesai membetulkan data interface "${iface}": ${formatBytes(moveTotal)} sukses dikembalikan ke ${yesterdayStr}!`);
+                        break;
+                    }
+                }
+            } catch (err) {
+                console.error(`[Traffic DB] Gagal auto-rectify untuk interface "${iface}":`, err.message);
+            }
+        }
+        return totalRectified > 0;
     }
 
     /**

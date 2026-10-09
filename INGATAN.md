@@ -604,8 +604,53 @@ Sistem kini mengimplementasikan engine pelacak waktu aktivasi presisi tinggi (`r
   - Rekapitulasi harian dan bulanan langsung diperbarui secara instan.
 
 ---
-*Catatan Terakhir Diperbarui: 9 Oktober 2026 - Presisi Pergantian Hari (00:00 WIB), Pelacakan Histori User Manager & Fitur Auto-Rectify.*
 
+## 18. Presisi Perhitungan Kuota Pemakaian Trafik & Proteksi Padam Lintas Hari (9 Oktober 2026)
 
+### A. Latar Belakang Masalah (Spike Boot Palsu)
+- **Gejala Masalah**:
+  1. Server Proxmox LXC padam malam hari (misal Kamis 8 Okt pukul 22:00 WIB), sementara MikroTik terus hidup melayani pelanggan hingga subuh.
+  2. Counter interface (`rx-byte` dan `tx-byte`) di MikroTik terus bertambah puluhan gigabyte sepanjang malam.
+  3. Keesokan paginya (Jumat 9 Okt pukul 05:30 WIB), saat Proxmox dinyalakan, sistem membaca counter MikroTik saat ini dan menghitung delta (`currRx - meta.last_raw_rx = 44.19 GB`).
+  4. Kode lama langsung memasukkan seluruh 44.19 GB tersebut ke tanggal hari ini (`2026-10-09`) dan menumpuknya di jam 5 pagi (`traffic_hourly` jam 5).
+  5. Akibatnya:
+     - Pemakaian kemarin (8 Okt) terpotong dan tidak mencatat kuota yang terpakai semalam.
+     - Pemakaian hari ini (9 Okt) melonjak drastis secara tidak wajar menjadi puluhan gigabyte.
+     - **Jam Puncak (Peak Hour) Hari Ini rusak** menampilkan: `"05:00 - 06:00 (44.19 GB)"`.
 
+### B. Arsitektur Pemisahan Delta Transisi Tanggal (*Cross-Date Quota Splitting*)
+Di `traffic-db.js`, fungsi `recordInterfaceTraffic()` kini mendeteksi kondisi pergantian hari:
+```javascript
+const prevDate = meta.last_seen_date;
+const dateChanged = Boolean(prevDate && prevDate !== dateKey);
+```
+Jika `dateChanged` terdeteksi, total delta RX dan TX tidak lagi ditumpahkan 100% ke hari ini, melainkan dipecah secara cerdas:
+1. **Prioritas 1: Rasio Riil Sesi User Manager (`umSessions`)**:
+   - Sistem memeriksa total download/upload dari sesi hotspot yang tercatat di MikroTik pada tanggal kemarin (`prevDate`) vs hari ini (`dateKey`).
+   - Formula: `ratioYesterday = umBytesYesterday / (umBytesYesterday + umTodayBytes)`.
+   - Jika kemarin pengguna hotspot mengunduh puluhan gigabyte dan hari ini dini hari belum ada aktivitas, 100% dari delta akan dialokasikan ke hari kemarin!
+2. **Prioritas 2: Profil Waktu Aktivitas Jaringan (*Activity Profile Fallback*)**:
+   - Jika router tidak menggunakan User Manager:
+   - Dini hari (00:00 - 06:00 WIB) adalah waktu tidur di mana pemakaian internet sangat rendah (rata-rata hanya 10%-15% dari total harian).
+   - Malam hari (20:00 - 24:00 WIB) adalah jam puncak aktivitas internet.
+   - Jika sistem baru sinkron di waktu subuh/pagi hari (jam $\le$ 08:00 WIB), 85% dari delta dialokasikan ke kemarin dan 15% ke hari ini.
+3. **Penyimpanan Database Presisi**:
+   - Porsi kemarin (`deltaRxYesterday`, `deltaTxYesterday`) diakumulasikan ke `traffic_daily (prevDate)` dan menutup grafik 24 jam kemarin di `traffic_hourly (prevDate, hour 23)`.
+   - Porsi hari ini (`deltaRxToday`, `deltaTxToday`) diakumulasikan ke `traffic_daily (dateKey)` dan jam saat ini `traffic_hourly (dateKey, hour)`.
 
+### C. Fitur Auto-Rectify Spike Booting Lama (`autoRectifyBootTrafficSpike`)
+- Untuk data anomali yang sudah terlanjur tercatat di database Proxmox (seperti lonjakan 44.19 GB pada 9 Okt jam 5 pagi):
+  - Sistem memiliki fungsi otomatis `trafficDb.autoRectifyBootTrafficSpike()`.
+  - Fungsi ini mendeteksi jika di jam subuh/pagi (00:00 - 08:00 WIB) hari ini terdapat jam yang memiliki trafik $\ge 3\text{ GB}$ dan menyumbang $\ge 40\%$ dari total trafik harian.
+  - Lonjakan tersebut diidentifikasi sebagai kuota kemarin yang tumpah saat boot, lalu dipindahkan secara otomatis:
+    - `traffic_hourly` jam spike hari ini dikurangi dan dikembalikan ke baseline wajar.
+    - `traffic_daily` hari ini dikurangi.
+    - `traffic_daily` kemarin ditambahkan.
+    - `traffic_hourly` kemarin jam 23 ditambahkan.
+- **Pemicu Auto-Rectify**:
+  1. Berjalan otomatis saat startup server (`server.listen`).
+  2. Berjalan pada siklus polling pertama (`cycleCount === 1`).
+  3. Dapat dipicu kapan saja melalui REST API: `POST /api/traffic/rectify-spike`.
+
+---
+*Catatan Terakhir Diperbarui: 9 Oktober 2026 - Presisi Pergantian Hari (00:00 WIB), Pemisahan Kuota Trafik Lintas Hari & Fitur Auto-Rectify Boot Spike.*
